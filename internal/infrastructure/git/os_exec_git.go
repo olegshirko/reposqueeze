@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/olegshirko/reposqueeze/internal/domain/entity"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -81,6 +83,15 @@ func (g *OSExecGitGateway) DeleteLocalBranch(repoPath, branchName string) error 
 	cmd := exec.Command("git", "-C", repoPath, "branch", "-D", branchName)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to delete local branch '%s': %w, output: %s", branchName, err, string(output))
+	}
+	return nil
+}
+
+// RemoveDirectory removes a directory from the repository.
+func (g *OSExecGitGateway) RemoveDirectory(repoPath, dirName string) error {
+	dirPath := filepath.Join(repoPath, dirName)
+	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
+		return os.RemoveAll(dirPath)
 	}
 	return nil
 }

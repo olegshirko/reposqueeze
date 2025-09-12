@@ -176,14 +176,29 @@ func (g *HTTPGitLabGateway) DeleteProject(projectID int) error {
 
 	req.Header.Set("PRIVATE-TOKEN", g.Token)
 
+	// Log request details
+	fmt.Printf("Deleting project. Request URL: %s\n", apiURL)
+	fmt.Println("Request Headers:")
+	for name, values := range req.Header {
+		if name != "PRIVATE-TOKEN" {
+			for _, value := range values {
+				fmt.Printf("  %s: %s\n", name, value)
+			}
+		}
+	}
+
 	resp, err := g.Client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request to gitlab api: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Log response details
+	body, _ := ioutil.ReadAll(resp.Body)
+	fmt.Printf("GitLab API Response Status: %s\n", resp.Status)
+	fmt.Printf("GitLab API Response Body: %s\n", string(body))
+
 	if resp.StatusCode != http.StatusAccepted {
-		body, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("gitlab api returned non-202 status for delete project: %s, body: %s", resp.Status, string(body))
 	}
 

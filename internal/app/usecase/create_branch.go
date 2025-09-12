@@ -70,6 +70,10 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 		return 0, 0, fmt.Errorf("failed to create local orphan branch: %w", err)
 	}
 
+	if err := uc.GitGateway.RemoveDirectory(input.RepoPath, "vendor"); err != nil {
+		return 0, 0, fmt.Errorf("failed to remove vendor directory: %w", err)
+	}
+
 	defer func() {
 		// Switch back to the original branch first
 		if err := uc.GitGateway.CheckoutBranch(input.RepoPath, input.SourceBranch); err != nil {

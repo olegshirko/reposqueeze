@@ -12,4 +12,5 @@ type GitGateway interface {
 	ListFiles(repoPath string) ([]string, error)
 	DeleteLocalBranch(repoPath, branchName string) error
 	CheckoutBranch(repoPath, branchName string) error
+	RemoveDirectory(repoPath, dirName string) error
 }
