@@ -74,6 +74,12 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 		return 0, 0, fmt.Errorf("failed to remove vendor directory: %w", err)
 	}
 
+	// Step 3: Get a list of all files in the repository.
+	files, err := uc.GitGateway.ListFiles(input.RepoPath)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to list files in repo: %w", err)
+	}
+
 	defer func() {
 		// Switch back to the original branch first
 		if err := uc.GitGateway.CheckoutBranch(input.RepoPath, input.SourceBranch); err != nil {
@@ -90,12 +96,6 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 	// if err != nil {
 	// 	return fmt.Errorf("failed to create remote branch: %w", err)
 	// }
-
-	// Step 3: Get a list of all files in the repository.
-	files, err := uc.GitGateway.ListFiles(input.RepoPath)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to list files in repo: %w", err)
-	}
 
 	if len(files) == 0 {
 		return 0, 0, fmt.Errorf("no files found in the repository to commit")
