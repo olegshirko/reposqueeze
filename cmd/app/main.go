@@ -11,7 +11,11 @@ import (
 func main() {
 	// 1. Create instances of the gateway implementations (Frameworks & Drivers)
 	gitGateway := git.NewOSExecGitGateway()
-	gitlabGateway := gitlab.NewHTTPGitLabGateway()
+	gitlabToken := os.Getenv("GITLAB_TOKEN")
+	if gitlabToken == "" {
+		panic("GITLAB_TOKEN environment variable not set")
+	}
+	gitlabGateway := gitlab.NewHTTPGitLabGateway(gitlabToken)
 
 	// 2. Create an instance of the use case, injecting the gateways (Use Cases)
 	createBranchUseCase := usecase.NewCreateAndPushOrphanBranchUseCase(gitGateway, gitlabGateway)

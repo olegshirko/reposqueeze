@@ -17,9 +17,13 @@ func NewOSExecGitGateway() *OSExecGitGateway {
 }
 
 // CreateOrphanBranch creates a new orphan branch in the given repository.
-func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch) (string, error) {
+func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) (string, error) {
 	// Command 1: Create the orphan branch
-	cmdCheckout := exec.Command("git", "checkout", "--orphan", branch.Name)
+	args := []string{"checkout", "--orphan", branch.Name}
+	if sourceBranch != "" {
+		args = append(args, sourceBranch)
+	}
+	cmdCheckout := exec.Command("git", args...)
 	cmdCheckout.Dir = repository.Path
 	if output, err := cmdCheckout.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
@@ -70,4 +74,22 @@ func (g *OSExecGitGateway) ListFiles(repoPath string) ([]string, error) {
 		}
 	}
 	return result, nil
+}
+
+// DeleteLocalBranch deletes a local branch.
+func (g *OSExecGitGateway) DeleteLocalBranch(repoPath, branchName string) error {
+	cmd := exec.Command("git", "-C", repoPath, "branch", "-D", branchName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to delete local branch '%s': %w, output: %s", branchName, err, string(output))
+	}
+	return nil
+}
+
+// CheckoutBranch switches to a different local branch.
+func (g *OSExecGitGateway) CheckoutBranch(repoPath, branchName string) error {
+	cmd := exec.Command("git", "-C", repoPath, "checkout", branchName)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to checkout branch '%s': %w, output: %s", branchName, err, string(output))
+	}
+	return nil
 }
