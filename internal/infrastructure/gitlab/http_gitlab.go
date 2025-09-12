@@ -8,7 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"reposqueeze/internal/domain/gateway"
+	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
 
 // HTTPGitLabGateway is an implementation of the GitLabGateway that uses net/http.

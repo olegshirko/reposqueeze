@@ -3,7 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
-	"reposqueeze/internal/domain/entity"
+	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"os/exec"
 	"strings"
 )

@@ -7,8 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reposqueeze/internal/domain/entity"
-	"reposqueeze/internal/domain/gateway"
+	"github.com/olegshirko/reposqueeze/internal/domain/entity"
+	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
+	"time"
 )
 
 // CreateAndPushOrphanBranchUseCase is the use case for creating and pushing an orphan branch via API.
@@ -37,13 +38,13 @@ func NewCreateAndPushOrphanBranchUseCase(
 }
 
 // Execute runs the use case.
-func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input Input) error {
+func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input Input) (time.Duration, int, error) {
 	// Step 1: Create the orphan branch locally and commit all files.
 	repo := &entity.Repository{Path: input.RepoPath}
 	branch := &entity.Branch{Name: input.BranchName}
 	_, err := uc.GitGateway.CreateOrphanBranch(ctx, repo, branch)
 	if err != nil {
-		return fmt.Errorf("failed to create local orphan branch: %w", err)
+		return 0, 0, fmt.Errorf("failed to create local orphan branch: %w", err)
 	}
 
 	// // Step 2: Create the branch on the remote using the commit SHA.
@@ -55,11 +56,11 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 	// Step 3: Get a list of all files in the repository.
 	files, err := uc.GitGateway.ListFiles(input.RepoPath)
 	if err != nil {
-		return fmt.Errorf("failed to list files in repo: %w", err)
+		return 0, 0, fmt.Errorf("failed to list files in repo: %w", err)
 	}
 
 	if len(files) == 0 {
-		return fmt.Errorf("no files found in the repository to commit")
+		return 0, 0, fmt.Errorf("no files found in the repository to commit")
 	}
 
 	// Step 4: Prepare the file actions for the GitLab API commit.
@@ -67,13 +68,13 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 	for _, file := range files {
 		f, err := os.Open(filepath.Join(input.RepoPath, file))
 		if err != nil {
-			return fmt.Errorf("failed to open file %s: %w", file, err)
+			return 0, 0, fmt.Errorf("failed to open file %s: %w", file, err)
 		}
 
 		content, err := io.ReadAll(f)
 		if err != nil {
 			f.Close()
-			return fmt.Errorf("failed to read file %s: %w", file, err)
+			return 0, 0, fmt.Errorf("failed to read file %s: %w", file, err)
 		}
 		f.Close()
 
@@ -86,6 +87,7 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 
 	// Step 5: Commit the files via the GitLab API. This will be the second commit.
 	commitMessage := fmt.Sprintf("Add project files to orphan branch %s", input.BranchName)
+	startTime := time.Now()
 	err = uc.GitLabGateway.CommitFilesViaAPI(
 		input.GitLabProjectID,
 		input.BranchName,
@@ -94,8 +96,9 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 		actions,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to commit files via GitLab API: %w", err)
+		return 0, 0, fmt.Errorf("failed to commit files via GitLab API: %w", err)
 	}
+	duration := time.Since(startTime)
 
-	return nil
+	return duration, len(files), nil
 }

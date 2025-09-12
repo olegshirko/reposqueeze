@@ -2,10 +2,10 @@ package main
 
 import (
 	"os"
-	"reposqueeze/internal/app/controller"
-	"reposqueeze/internal/app/usecase"
-	"reposqueeze/internal/infrastructure/git"
-	"reposqueeze/internal/infrastructure/gitlab"
+	"github.com/olegshirko/reposqueeze/internal/app/controller"
+	"github.com/olegshirko/reposqueeze/internal/app/usecase"
+	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
+	"github.com/olegshirko/reposqueeze/internal/infrastructure/gitlab"
 )
 
 func main() {

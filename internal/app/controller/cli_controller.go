@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"reposqueeze/internal/app/usecase"
+	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 )
 
 // CLIController handles the command-line interface logic.
@@ -36,11 +36,12 @@ func (c *CLIController) Run(args []string) {
 	}
 
 	fmt.Printf("Starting process for repository: %s\n", input.RepoPath)
-	err := c.useCase.Execute(context.Background(), input)
+	duration, filesCount, err := c.useCase.Execute(context.Background(), input)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
 	fmt.Printf("Successfully created and pushed orphan branch '%s' to project '%s'.\n", input.BranchName, input.GitLabProjectID)
+	fmt.Printf("Copied %d files in %s.\n", filesCount, duration)
 }

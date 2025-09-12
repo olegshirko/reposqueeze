@@ -2,7 +2,8 @@ package gateway
 
 import (
 	"context"
-	"reposqueeze/internal/domain/entity"
+
+	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 )
 
 // GitGateway defines the interface for interacting with a local Git system.
