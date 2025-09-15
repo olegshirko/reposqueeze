@@ -23,10 +23,10 @@ type CreateAndPushOrphanBranchUseCase struct {
 
 // Input represents the input data for the use case.
 type Input struct {
-	RepoPath        string
-	BranchName      string
-	SourceBranch    string
-	GitLabToken     string
+	RepoPath     string
+	BranchName   string
+	SourceBranch string
+	GitLabToken  string
 }
 
 // NewCreateAndPushOrphanBranchUseCase creates a new instance of the use case.

@@ -131,8 +131,8 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 	return nil
 }
 
-func (g *HTTPGitLabGateway) FindProjectByName(name string) (*entity.Project, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects?search=%s", url.QueryEscape(name))
+func (g *HTTPGitLabGateway) FindProjectByName(projectName string) (*entity.Project, error) {
+	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects?owned=true&search=%s", url.QueryEscape(projectName))
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -157,10 +157,19 @@ func (g *HTTPGitLabGateway) FindProjectByName(name string) (*entity.Project, err
 		return nil, fmt.Errorf("failed to decode gitlab projects: %w", err)
 	}
 
+	var matchingProjects []entity.Project
 	for _, p := range projects {
-		if p.Name == name {
-			return &p, nil
+		if p.Name == projectName {
+			matchingProjects = append(matchingProjects, p)
 		}
+	}
+
+	if len(matchingProjects) == 1 {
+		return &matchingProjects[0], nil
+	}
+
+	if len(matchingProjects) > 1 {
+		return nil, fmt.Errorf("found multiple projects with name %s, please specify the full path", projectName)
 	}
 
 	return nil, nil // Not found
