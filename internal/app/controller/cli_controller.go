@@ -3,18 +3,20 @@ package controller
 import (
 	"context"
 	"flag"
-	"fmt"
+
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
+	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
 // CLIController handles the command-line interface logic.
 type CLIController struct {
 	useCase *usecase.CreateAndPushOrphanBranchUseCase
+	logger  logger.Logger
 }
 
 // NewCLIController creates a new instance of CLIController.
-func NewCLIController(uc *usecase.CreateAndPushOrphanBranchUseCase) *CLIController {
-	return &CLIController{useCase: uc}
+func NewCLIController(uc *usecase.CreateAndPushOrphanBranchUseCase, log logger.Logger) *CLIController {
+	return &CLIController{useCase: uc, logger: log}
 }
 
 // Run executes the controller logic.
@@ -31,7 +33,7 @@ func (c *CLIController) Run(args []string) {
 	sourceBranch := fs.String("from", "master", "Source branch to create orphan from")
 
 	fs.Usage = func() {
-		fmt.Println("Usage: go run cmd/app/main.go --repo-path <path> --branch-name <name> --token <token> [--from <source>]")
+		c.logger.Info("Usage: go run cmd/app/main.go --repo-path <path> --branch-name <name> --token <token> [--from <source>]")
 	}
 
 	fs.Parse(args)
@@ -48,13 +50,13 @@ func (c *CLIController) Run(args []string) {
 		SourceBranch: *sourceBranch,
 	}
 
-	fmt.Printf("Starting process for repository: %s\n", input.RepoPath)
+	c.logger.Infof("Starting process for repository: %s", input.RepoPath)
 	duration, filesCount, err := c.useCase.Execute(context.Background(), input)
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
+		c.logger.Errorf("Error: %v", err)
 		return
 	}
 
-	fmt.Printf("Successfully created and pushed orphan branch '%s'.\n", input.BranchName)
-	fmt.Printf("Copied %d files in %s.\n", filesCount, duration)
+	c.logger.Infof("Successfully created and pushed orphan branch '%s'.", input.BranchName)
+	c.logger.Infof("Copied %d files in %s.", filesCount, duration)
 }

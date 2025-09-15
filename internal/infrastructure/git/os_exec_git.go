@@ -2,20 +2,23 @@ package git
 
 import (
 	"context"
-	"fmt"
-	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/olegshirko/reposqueeze/internal/domain/entity"
+	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
 // OSExecGitGateway is an implementation of the GitGateway that uses os/exec.
-type OSExecGitGateway struct{}
+type OSExecGitGateway struct {
+	logger logger.Logger
+}
 
 // NewOSExecGitGateway creates a new instance of OSExecGitGateway.
-func NewOSExecGitGateway() *OSExecGitGateway {
-	return &OSExecGitGateway{}
+func NewOSExecGitGateway(log logger.Logger) *OSExecGitGateway {
+	return &OSExecGitGateway{logger: log}
 }
 
 // CreateOrphanBranch creates a new orphan branch in the given repository.
@@ -28,21 +31,24 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 	cmdCheckout := exec.Command("git", args...)
 	cmdCheckout.Dir = repository.Path
 	if output, err := cmdCheckout.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
+		return "", err
 	}
 
 	// Command 2: Stage all current files for the initial commit
 	cmdAdd := exec.Command("git", "add", ".")
 	cmdAdd.Dir = repository.Path
 	if output, err := cmdAdd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("failed to stage files for commit: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to stage files for commit: %w, output: %s", err, string(output))
+		return "", err
 	}
 
 	// Command 3: Make an initial commit with the current files
 	cmdCommit := exec.Command("git", "commit", "-m", "Initial commit on orphan branch")
 	cmdCommit.Dir = repository.Path
 	if output, err := cmdCommit.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("failed to make initial commit: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to make initial commit: %w, output: %s", err, string(output))
+		return "", err
 	}
 
 	// Command 4: Get the SHA of the new commit
@@ -50,7 +56,8 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 	cmdRevParse.Dir = repository.Path
 	output, err := cmdRevParse.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to get new commit SHA: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to get new commit SHA: %w, output: %s", err, string(output))
+		return "", err
 	}
 
 	return strings.TrimSpace(string(output)), nil
@@ -62,7 +69,8 @@ func (g *OSExecGitGateway) ListFiles(repoPath string) ([]string, error) {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to list files: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to list files: %w, output: %s", err, string(output))
+		return nil, err
 	}
 	// The output is a newline-separated list of files.
 	// We need to split it into a slice of strings.
@@ -82,7 +90,8 @@ func (g *OSExecGitGateway) ListFiles(repoPath string) ([]string, error) {
 func (g *OSExecGitGateway) DeleteLocalBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "-C", repoPath, "branch", "-D", branchName)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to delete local branch '%s': %w, output: %s", branchName, err, string(output))
+		g.logger.Errorf("failed to delete local branch '%s': %w, output: %s", branchName, err, string(output))
+		return err
 	}
 	return nil
 }
@@ -100,7 +109,8 @@ func (g *OSExecGitGateway) RemoveDirectory(repoPath, dirName string) error {
 func (g *OSExecGitGateway) CheckoutBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "-C", repoPath, "checkout", branchName)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to checkout branch '%s': %w, output: %s", branchName, err, string(output))
+		g.logger.Errorf("failed to checkout branch '%s': %w, output: %s", branchName, err, string(output))
+		return err
 	}
 	return nil
 }
