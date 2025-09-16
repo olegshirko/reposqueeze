@@ -13,4 +13,5 @@ type GitGateway interface {
 	DeleteLocalBranch(repoPath, branchName string) error
 	CheckoutBranch(repoPath, branchName string) error
 	RemoveDirectory(repoPath, dirName string) error
+	CleanWorkdir(repoPath string) error
 }

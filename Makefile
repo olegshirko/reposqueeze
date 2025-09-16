@@ -7,7 +7,11 @@ BINARY_PATH_LINUX=./bin/$(BINARY_NAME)-linux
 .PHONY: all build build-linux pack pack-linux help
 
 # The default target is 'help'
-all: help
+all: 
+	$(MAKE) build
+	$(MAKE) build-linux
+	$(MAKE) pack
+	$(MAKE) pack-linux
 
 # Build the Go application
 # Compiles the source code from cmd/app/main.go and places the output in bin/
@@ -20,7 +24,7 @@ build:
 # This target depends on 'build', so 'build' will run automatically before 'pack'
 pack: build
 	@echo "Packing the binary with upx..."
-	@upx --best --lzma $(BINARY_PATH)
+	@upx --best --lzma --force-macos $(BINARY_PATH)
 	@echo "Packing complete."
 
 # Build the Go application for Linux

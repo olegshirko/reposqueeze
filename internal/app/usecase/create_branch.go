@@ -26,7 +26,6 @@ type Input struct {
 	RepoPath     string
 	BranchName   string
 	SourceBranch string
-	GitLabToken  string
 }
 
 // NewCreateAndPushOrphanBranchUseCase creates a new instance of the use case.
@@ -94,7 +93,7 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 	}()
 
 	// // Step 2: Create the branch on the remote using the commit SHA.
-	// err = uc.GitLabGateway.CreateRemoteBranch(ctx, input.GitLabProjectID, input.BranchName, commitSHA, input.GitLabToken)
+	// err = uc.GitLabGateway.CreateRemoteBranch(ctx, input.GitLabProjectID, input.BranchName, commitSHA)
 	// if err != nil {
 	// 	return fmt.Errorf("failed to create remote branch: %w", err)
 	// }

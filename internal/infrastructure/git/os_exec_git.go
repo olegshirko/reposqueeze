@@ -96,6 +96,16 @@ func (g *OSExecGitGateway) DeleteLocalBranch(repoPath, branchName string) error 
 	return nil
 }
 
+func (g *OSExecGitGateway) CleanWorkdir(repoPath string) error {
+	cmd := exec.Command("git", "clean", "-fdx")
+	cmd.Dir = repoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		g.logger.Errorf("failed to clean workdir: %w, output: %s", err, string(output))
+		return err
+	}
+	return nil
+}
+
 // RemoveDirectory removes a directory from the repository.
 func (g *OSExecGitGateway) RemoveDirectory(repoPath, dirName string) error {
 	dirPath := filepath.Join(repoPath, dirName)

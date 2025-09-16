@@ -98,7 +98,7 @@ type createBranchPayload struct {
 	Ref    string `json:"ref"`
 }
 
-func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, branchName, refSHA, token string) error {
+func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, branchName, refSHA string) error {
 	// 1. Prepare the API payload
 	payload := createBranchPayload{
 		Branch: branchName,
@@ -123,7 +123,7 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 
 	// 4. Set necessary headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("PRIVATE-TOKEN", token)
+	req.Header.Set("PRIVATE-TOKEN", g.Token) // Используем токен из структуры
 
 	// 5. Send the request
 	resp, err := g.Client.Do(req)
@@ -285,4 +285,38 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 	}
 
 	return &project, nil
+}
+
+func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buffer) error {
+	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/archive.zip", projectID)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		return err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+	resp, err := g.Client.Do(req)
+	if err != nil {
+		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		err := fmt.Errorf("gitlab api returned non-200 status for download archive: %s, body: %s", resp.Status, string(body))
+		g.logger.Error(err)
+		return err
+	}
+
+	_, err = writer.ReadFrom(resp.Body)
+	if err != nil {
+		g.logger.Errorf("failed to read response body: %w", err)
+		return err
+	}
+
+	return nil
 }
