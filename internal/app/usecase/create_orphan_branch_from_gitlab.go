@@ -52,7 +52,7 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 
 	repo := &entity.Repository{Path: input.RepoPath}
 	branch := &entity.Branch{Name: input.BranchName}
-	if _, err = uc.GitGateway.CreateOrphanBranch(ctx, repo, branch, ""); err != nil {
+	if err := uc.GitGateway.CreateEmptyOrphanBranch(ctx, repo, branch, ""); err != nil {
 		return 0, 0, err
 	}
 

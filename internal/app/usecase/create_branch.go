@@ -66,7 +66,7 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 	// Step 2: Create the orphan branch locally and commit all files.
 	repo := &entity.Repository{Path: input.RepoPath}
 	branch := &entity.Branch{Name: input.BranchName}
-	_, err = uc.GitGateway.CreateOrphanBranch(ctx, repo, branch, input.SourceBranch)
+	err = uc.GitGateway.CreateOrphanBranch(ctx, repo, branch, input.SourceBranch)
 	if err != nil {
 		return 0, 0, err
 	}

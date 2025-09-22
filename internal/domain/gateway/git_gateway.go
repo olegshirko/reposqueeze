@@ -8,7 +8,8 @@ import (
 
 // GitGateway defines the interface for interacting with a local Git system.
 type GitGateway interface {
-	CreateOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) (string, error)
+	CreateOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) error
+	CreateEmptyOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) error
 	ListFiles(repoPath string) ([]string, error)
 	DeleteLocalBranch(repoPath, branchName string) error
 	CheckoutBranch(repoPath, branchName string) error

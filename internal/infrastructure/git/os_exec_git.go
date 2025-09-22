@@ -22,7 +22,7 @@ func NewOSExecGitGateway(log logger.Logger) *OSExecGitGateway {
 }
 
 // CreateOrphanBranch creates a new orphan branch in the given repository.
-func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) (string, error) {
+func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) error {
 	// Command 1: Create the orphan branch
 	args := []string{"checkout", "--orphan", branch.Name}
 	if sourceBranch != "" {
@@ -32,7 +32,7 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 	cmdCheckout.Dir = repository.Path
 	if output, err := cmdCheckout.CombinedOutput(); err != nil {
 		g.logger.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
-		return "", err
+		return err
 	}
 
 	// Command 2: Stage all current files for the initial commit
@@ -40,7 +40,7 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 	cmdAdd.Dir = repository.Path
 	if output, err := cmdAdd.CombinedOutput(); err != nil {
 		g.logger.Errorf("failed to stage files for commit: %w, output: %s", err, string(output))
-		return "", err
+		return err
 	}
 
 	// Command 3: Make an initial commit with the current files
@@ -48,7 +48,7 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 	cmdCommit.Dir = repository.Path
 	if output, err := cmdCommit.CombinedOutput(); err != nil {
 		g.logger.Errorf("failed to make initial commit: %w, output: %s", err, string(output))
-		return "", err
+		return err
 	}
 
 	// Command 4: Get the SHA of the new commit
@@ -57,10 +57,38 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 	output, err := cmdRevParse.CombinedOutput()
 	if err != nil {
 		g.logger.Errorf("failed to get new commit SHA: %w, output: %s", err, string(output))
-		return "", err
+		return err
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	// We are not returning the SHA, but we are logging it for debugging purposes.
+	g.logger.Infof("new commit SHA: %s", strings.TrimSpace(string(output)))
+
+	return nil
+}
+
+// CreateEmptyOrphanBranch creates a new orphan branch in the given repository.
+func (g *OSExecGitGateway) CreateEmptyOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) error {
+	// Command 1: Create the orphan branch
+	args := []string{"checkout", "--orphan", branch.Name}
+	if sourceBranch != "" {
+		args = append(args, sourceBranch)
+	}
+	cmdCheckout := exec.Command("git", args...)
+	cmdCheckout.Dir = repository.Path
+	if output, err := cmdCheckout.CombinedOutput(); err != nil {
+		g.logger.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
+		return err
+	}
+
+	// Command 2: Remove all files from the index to make the branch truly empty
+	cmdRm := exec.Command("git", "rm", "-rf", "--cached", ".")
+	cmdRm.Dir = repository.Path
+	if output, err := cmdRm.CombinedOutput(); err != nil {
+		// This command can fail if there are no files, which is fine for an orphan branch
+		g.logger.Infof("cleaning index on orphan branch (non-fatal error is ok): %s", string(output))
+	}
+
+	return nil
 }
 
 // ListFiles lists all tracked files in the repository.
