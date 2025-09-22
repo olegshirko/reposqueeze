@@ -62,7 +62,7 @@ reposqueeze create-from-local --repo-path /path/to/your/local/repo --branch-name
 reposqueeze create-from-local --repo-path . --branch-name docs --token ghp_xxxxxxxxxxxxxxxxxxxx
 
 # Создание сиротской ветки 'gh-pages' с файлами из ветки 'main'
-reposqueeze create-from-local --repo-path /home/user/my-project --branch-name gh-pages --token ghp_xxxxxxxxxxxxxxxxxxxx --from main
+reposqueeze create-from-local --repo-path /home/user/my-project --branch-name gh-pages --from main
 ```
 
 ### Создание сиротской ветки из GitLab
@@ -82,7 +82,7 @@ reposqueeze create-from-gitlab --repo-path /path/to/new/local/repo --branch-name
 **Пример:**
 ```bash
 # Создание сиротской ветки 'builds' из GitLab проекта с ID 54321
-reposqueeze create-from-gitlab --repo-path /tmp/my-builds --branch-name builds --token ghp_xxxxxxxxxxxxxxxxxxxx --project-id 54321
+reposqueeze create-from-gitlab --repo-path /path/to/new/local/repo --branch-name orphan-branch-in-your-project
 ```
 
 ## Переменные окружения
