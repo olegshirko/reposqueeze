@@ -53,7 +53,6 @@ reposqueeze create-from-local --repo-path /path/to/your/local/repo --branch-name
 
 *   `--repo-path <путь_к_репозиторию>`: **(Обязательно)** Абсолютный или относительный путь к локальному Git-репозиторию.
 *   `--branch-name <имя_ветки>`: **(Обязательно)** Имя новой сиротской ветки, например, `gh-pages` или `docs`.
-*   `--token <токен_gitlab>`: **(Обязательно)** Персональный токен доступа GitLab с правами `api` и `read_repository`.
 *   `--from <исходная_ветка>`: **(Опционально)** Имя существующей ветки, из которой будут скопированы файлы в новую сиротскую ветку. Если не указано, новая ветка будет пустой.
 
 **Пример:**
@@ -75,7 +74,6 @@ reposqueeze create-from-gitlab --repo-path /path/to/new/local/repo --branch-name
 
 *   `--repo-path <путь_к_репозиторию>`: **(Обязательно)** Путь к локальному каталогу, где будет инициализирован новый репозиторий, загружен архив GitLab и создана сиротская ветка.
 *   `--branch-name <имя_ветки>`: **(Обязательно)** Имя новой сиротской ветки.
-*   `--token <токен_gitlab>`: **(Обязательно)** Персональный токен доступа GitLab с правами `api` и `read_repository`.
 *   `--project-id <идентификатор_проекта>`: **(Обязательно)** Числовой идентификатор проекта GitLab.
 *   `--gitlab-url <URL_GitLab>`: **(Опционально)** Базовый URL вашего экземпляра GitLab (по умолчанию `https://gitlab.com`).
 
@@ -84,7 +82,10 @@ reposqueeze create-from-gitlab --repo-path /path/to/new/local/repo --branch-name
 # Создание сиротской ветки 'builds' из GitLab проекта с ID 54321
 reposqueeze create-from-gitlab --repo-path /path/to/new/local/repo --branch-name orphan-branch-in-your-project
 ```
-
+для того чтобы смержить изменения
+```bash
+git merge orphan-branch-in-your-project --allow-unrelated-historie
+```
 ## Переменные окружения
 
 `reposqueeze` может использовать переменные окружения для конфигурации.
