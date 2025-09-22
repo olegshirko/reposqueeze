@@ -82,7 +82,11 @@ reposqueeze create-from-gitlab --repo-path /path/to/new/local/repo --branch-name
 # Создание сиротской ветки 'builds' из GitLab проекта с ID 54321
 reposqueeze create-from-gitlab --repo-path /path/to/new/local/repo --branch-name orphan-branch-in-your-project
 ```
-для того чтобы смержить изменения
+для того чтобы смержить изменения, нужно зайти в свою ветку
+```bash
+git checkout <ветка куда нужно сделать merge>
+```
+и потом запустить сам мерж
 ```bash
 git merge orphan-branch-in-your-project --allow-unrelated-historie
 ```
