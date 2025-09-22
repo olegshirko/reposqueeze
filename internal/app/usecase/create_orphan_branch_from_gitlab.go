@@ -77,30 +77,44 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 		}
 	}
 
-	for _, file := range zipReader.File {
-		zippedFile, err := file.Open()
-		if err != nil {
-			return 0, 0, err
-		}
-		defer zippedFile.Close()
+	if len(zipReader.File) > 0 {
+		firstFile := zipReader.File[0]
+		rootDir := strings.Split(firstFile.Name, "/")[0] + "/"
 
-		extractedFilePath := filepath.Join(input.RepoPath, file.Name)
-		if file.FileInfo().IsDir() {
-			os.MkdirAll(extractedFilePath, file.Mode())
-		} else {
-			outputFile, err := os.OpenFile(
-				extractedFilePath,
-				os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
-				file.Mode(),
-			)
-			if err != nil {
-				return 0, 0, err
+		for _, file := range zipReader.File {
+			if !strings.HasPrefix(file.Name, rootDir) {
+				continue
 			}
-			defer outputFile.Close()
+			relativePath := strings.TrimPrefix(file.Name, rootDir)
+			if relativePath == "" {
+				continue
+			}
 
-			_, err = io.Copy(outputFile, zippedFile)
-			if err != nil {
-				return 0, 0, err
+			extractedFilePath := filepath.Join(input.RepoPath, relativePath)
+
+			if file.FileInfo().IsDir() {
+				os.MkdirAll(extractedFilePath, file.Mode())
+			} else {
+				zippedFile, err := file.Open()
+				if err != nil {
+					return 0, 0, err
+				}
+				defer zippedFile.Close()
+
+				outputFile, err := os.OpenFile(
+					extractedFilePath,
+					os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
+					file.Mode(),
+				)
+				if err != nil {
+					return 0, 0, err
+				}
+				defer outputFile.Close()
+
+				_, err = io.Copy(outputFile, zippedFile)
+				if err != nil {
+					return 0, 0, err
+				}
 			}
 		}
 	}
