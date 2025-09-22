@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -53,7 +52,7 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 
 	repo := &entity.Repository{Path: input.RepoPath}
 	branch := &entity.Branch{Name: input.BranchName}
-	if _, err = uc.GitGateway.CreateOrphanBranch(ctx, repo, branch, ""); err != nil {
+	if err := uc.GitGateway.CreateEmptyOrphanBranch(ctx, repo, branch, ""); err != nil {
 		return 0, 0, err
 	}
 
@@ -106,31 +105,9 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 		}
 	}
 
-	var actions []gateway.CommitAction
-	for _, file := range zipReader.File {
-		if !strings.HasSuffix(file.Name, "/") {
-			content, err := os.ReadFile(filepath.Join(input.RepoPath, file.Name))
-			if err != nil {
-				return 0, 0, err
-			}
-			actions = append(actions, gateway.CommitAction{
-				Action:   "create",
-				FilePath: file.Name,
-				Content:  string(content),
-				Encoding: "text",
-			})
-		}
-	}
-
 	commitMessage := "Add project files to orphan branch " + input.BranchName
 	startTime := time.Now()
-	err = uc.GitLabGateway.CommitFilesViaAPI(
-		strconv.Itoa(project.ID),
-		input.BranchName,
-		commitMessage,
-		actions,
-	)
-	if err != nil {
+	if err = uc.GitGateway.Commit(input.RepoPath, commitMessage); err != nil {
 		return 0, 0, err
 	}
 	duration := time.Since(startTime)
