@@ -155,7 +155,9 @@ func (c *CLIController) handlePullFiles(args []string) {
 	fs := flag.NewFlagSet("pull-files", flag.ExitOnError)
 	repoPath := fs.String("repo-path", "", "Path to the local repository")
 	branchName := fs.String("branch-name", "master", "Source branch on GitLab")
-	files := fs.String("files", "", "Comma-separated list of relative file paths (optional; if omitted, pulls diff from latest commit)")
+	files := fs.String("files", "", "Comma-separated list of relative file paths (optional; if omitted, pulls diff from latest commit(s))")
+	commits := fs.Int("commits", 1, "Number of latest commits to pull diffs from")
+	gitAdd := fs.Bool("git-add", false, "Stage all downloaded files in local git (git add)")
 
 	fs.Parse(args)
 
@@ -168,6 +170,8 @@ func (c *CLIController) handlePullFiles(args []string) {
 		RepoPath:   *repoPath,
 		BranchName: *branchName,
 		Files:      *files,
+		Commits:    *commits,
+		GitAdd:     *gitAdd,
 	}
 
 	c.logger.Infof("Pulling files from project derived from: %s", input.RepoPath)

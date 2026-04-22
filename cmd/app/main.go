@@ -26,7 +26,7 @@ func main() {
 	createBranchUseCase := usecase.NewCreateAndPushOrphanBranchUseCase(gitGateway, gitlabGateway, log)
 	createOrphanBranchFromGitlabUseCase := usecase.NewCreateOrphanBranchFromGitlabUseCase(gitGateway, gitlabGateway, log)
 	pushFilesUseCase := usecase.NewPushFilesUseCase(gitlabGateway, log)
-	pullFilesUseCase := usecase.NewPullFilesUseCase(gitlabGateway, log)
+	pullFilesUseCase := usecase.NewPullFilesUseCase(gitGateway, gitlabGateway, log)
 
 	// 3. Create an instance of the controller, injecting the use case (Interface Adapters)
 	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, gitlabGateway, log)

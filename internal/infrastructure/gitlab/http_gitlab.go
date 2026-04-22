@@ -321,18 +321,14 @@ func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buf
 	return nil
 }
 
-type commitInfo struct {
-	ID string `json:"id"`
-}
-
-func (g *HTTPGitLabGateway) GetLastCommitSHA(projectID int, branchName string) (string, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/commits?ref_name=%s&per_page=1",
-		projectID, url.QueryEscape(branchName))
+func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit int) ([]gateway.CommitInfo, error) {
+	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/commits?ref_name=%s&per_page=%d",
+		projectID, url.QueryEscape(branchName), limit)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		g.logger.Errorf("failed to create gitlab api request: %w", err)
-		return "", err
+		return nil, err
 	}
 
 	req.Header.Set("PRIVATE-TOKEN", g.Token)
@@ -340,7 +336,7 @@ func (g *HTTPGitLabGateway) GetLastCommitSHA(projectID int, branchName string) (
 	resp, err := g.Client.Do(req)
 	if err != nil {
 		g.logger.Errorf("failed to send request to gitlab api: %w", err)
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -348,29 +344,19 @@ func (g *HTTPGitLabGateway) GetLastCommitSHA(projectID int, branchName string) (
 		body, _ := ioutil.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-200 status for list commits: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
-		return "", err
+		return nil, err
 	}
 
-	var commits []commitInfo
+	var commits []gateway.CommitInfo
 	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
 		g.logger.Errorf("failed to decode commits: %w", err)
-		return "", err
+		return nil, err
 	}
 
-	if len(commits) == 0 {
-		return "", fmt.Errorf("no commits found for branch %q", branchName)
-	}
-
-	return commits[0].ID, nil
+	return commits, nil
 }
 
-type diffEntry struct {
-	NewPath     string `json:"new_path"`
-	DeletedFile bool   `json:"deleted_file"`
-	RenamedFile bool   `json:"renamed_file"`
-}
-
-func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]string, error) {
+func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]gateway.DiffEntry, error) {
 	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/commits/%s/diff",
 		projectID, url.PathEscape(sha))
 
@@ -396,21 +382,13 @@ func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]string, 
 		return nil, err
 	}
 
-	var diffs []diffEntry
+	var diffs []gateway.DiffEntry
 	if err := json.NewDecoder(resp.Body).Decode(&diffs); err != nil {
 		g.logger.Errorf("failed to decode commit diff: %w", err)
 		return nil, err
 	}
 
-	var files []string
-	for _, d := range diffs {
-		if d.DeletedFile {
-			continue
-		}
-		files = append(files, d.NewPath)
-	}
-
-	return files, nil
+	return diffs, nil
 }
 
 func (g *HTTPGitLabGateway) GetRawFile(projectID int, filePath, ref string) ([]byte, error) {

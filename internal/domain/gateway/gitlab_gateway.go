@@ -15,6 +15,21 @@ type CommitAction struct {
 	Encoding string `json:"encoding"` // "text" or "base64"
 }
 
+// CommitInfo holds basic metadata about a GitLab commit.
+type CommitInfo struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
+}
+
+// DiffEntry describes a single file change inside a commit diff.
+type DiffEntry struct {
+	NewPath     string `json:"new_path"`
+	OldPath     string `json:"old_path"`
+	DeletedFile bool   `json:"deleted_file"`
+	RenamedFile bool   `json:"renamed_file"`
+	NewFile     bool   `json:"new_file"`
+}
+
 // GitLabGateway defines the interface for interacting with the GitLab API.
 type GitLabGateway interface {
 	CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []CommitAction) error
@@ -23,7 +38,7 @@ type GitLabGateway interface {
 	DeleteProject(projectID int) error
 	CreateProject(name string) (*entity.Project, error)
 	DownloadRepoArchive(projectID int, writer *bytes.Buffer) error
-	GetLastCommitSHA(projectID int, branchName string) (string, error)
-	GetCommitDiff(projectID int, sha string) ([]string, error)
+	GetCommits(projectID int, branchName string, limit int) ([]CommitInfo, error)
+	GetCommitDiff(projectID int, sha string) ([]DiffEntry, error)
 	GetRawFile(projectID int, filePath, ref string) ([]byte, error)
 }

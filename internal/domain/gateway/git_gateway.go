@@ -16,4 +16,5 @@ type GitGateway interface {
 	RemoveDirectory(repoPath, dirName string) error
 	CleanWorkdir(repoPath string) error
 	Commit(repoPath, message string) error
+	AddAll(repoPath string) error
 }

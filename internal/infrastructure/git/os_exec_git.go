@@ -125,11 +125,18 @@ func (g *OSExecGitGateway) CheckoutBranch(repoPath, branchName string) error {
 	}
 	return nil
 }
-func (g *OSExecGitGateway) Commit(repoPath, message string) error {
+func (g *OSExecGitGateway) AddAll(repoPath string) error {
 	cmdAdd := exec.Command("git", "add", ".")
 	cmdAdd.Dir = repoPath
 	if output, err := cmdAdd.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to stage files for commit: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to stage files: %w, output: %s", err, string(output))
+		return err
+	}
+	return nil
+}
+
+func (g *OSExecGitGateway) Commit(repoPath, message string) error {
+	if err := g.AddAll(repoPath); err != nil {
 		return err
 	}
 

@@ -14,6 +14,7 @@ import (
 
 // PullFilesUseCase downloads files from an existing GitLab project branch.
 type PullFilesUseCase struct {
+	GitGateway    gateway.GitGateway
 	GitLabGateway gateway.GitLabGateway
 	logger        logger.Logger
 }
@@ -22,12 +23,15 @@ type PullFilesUseCase struct {
 type PullFilesInput struct {
 	RepoPath   string
 	BranchName string
-	Files      string // comma-separated list; if empty, pulls files from the latest commit diff
+	Files      string // comma-separated list; if empty, pulls files from commit diffs
+	Commits    int    // number of latest commits to process (default 1)
+	GitAdd     bool   // if true, runs git add + commit after downloading
 }
 
 // NewPullFilesUseCase creates a new instance of PullFilesUseCase.
-func NewPullFilesUseCase(gitLabGateway gateway.GitLabGateway, log logger.Logger) *PullFilesUseCase {
+func NewPullFilesUseCase(gitGateway gateway.GitGateway, gitLabGateway gateway.GitLabGateway, log logger.Logger) *PullFilesUseCase {
 	return &PullFilesUseCase{
+		GitGateway:    gitGateway,
 		GitLabGateway: gitLabGateway,
 		logger:        log,
 	}
@@ -35,6 +39,10 @@ func NewPullFilesUseCase(gitLabGateway gateway.GitLabGateway, log logger.Logger)
 
 // Execute runs the use case.
 func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (time.Duration, int, error) {
+	if input.Commits <= 0 {
+		input.Commits = 1
+	}
+
 	// Step 1: Find the project by name.
 	projectName := filepath.Base(strings.TrimSuffix(input.RepoPath, ".git"))
 	project, err := uc.GitLabGateway.FindProjectByName(projectName)
@@ -45,63 +53,93 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 		return 0, 0, fmt.Errorf("project %q not found on GitLab", projectName)
 	}
 
-	var filePaths []string
+	// Ensure target directory exists.
+	if err := os.MkdirAll(input.RepoPath, 0o755); err != nil {
+		return 0, 0, fmt.Errorf("failed to create repo path: %w", err)
+	}
+
+	startTime := time.Now()
+	downloaded := 0
 
 	if input.Files != "" {
 		// Explicit file list provided.
 		parts := strings.Split(input.Files, ",")
 		for _, p := range parts {
 			p = strings.TrimSpace(p)
-			if p != "" {
-				filePaths = append(filePaths, p)
+			if p == "" {
+				continue
 			}
+			if err := uc.downloadFile(project.ID, p, input.BranchName, input.RepoPath); err != nil {
+				return 0, 0, err
+			}
+			downloaded++
 		}
 	} else {
-		// Resolve files from the latest commit diff.
-		sha, err := uc.GitLabGateway.GetLastCommitSHA(project.ID, input.BranchName)
+		// Resolve files from the latest N commits.
+		commits, err := uc.GitLabGateway.GetCommits(project.ID, input.BranchName, input.Commits)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to get last commit: %w", err)
+			return 0, 0, fmt.Errorf("failed to get commits: %w", err)
 		}
-		uc.logger.Infof("Latest commit on %s: %s", input.BranchName, sha)
+		if len(commits) == 0 {
+			return 0, 0, fmt.Errorf("no commits found for branch %q", input.BranchName)
+		}
 
-		diffFiles, err := uc.GitLabGateway.GetCommitDiff(project.ID, sha)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to get commit diff: %w", err)
+		uc.logger.Infof("Processing %d commit(s) from branch %s", len(commits), input.BranchName)
+
+		// Process from oldest to newest so newer commits overwrite older ones.
+		for i := len(commits) - 1; i >= 0; i-- {
+			commit := commits[i]
+			uc.logger.Infof("Commit %s: %s", commit.ID, strings.Split(commit.Message, "\n")[0])
+
+			diffs, err := uc.GitLabGateway.GetCommitDiff(project.ID, commit.ID)
+			if err != nil {
+				return 0, 0, fmt.Errorf("failed to get diff for commit %s: %w", commit.ID, err)
+			}
+
+			for _, d := range diffs {
+				if d.DeletedFile {
+					localPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.NewPath))
+					if err := os.RemoveAll(localPath); err != nil {
+						return 0, 0, fmt.Errorf("failed to delete file %q: %w", d.NewPath, err)
+					}
+					uc.logger.Infof("Deleted: %s", d.NewPath)
+					continue
+				}
+
+				if err := uc.downloadFile(project.ID, d.NewPath, commit.ID, input.RepoPath); err != nil {
+					return 0, 0, err
+				}
+				downloaded++
+			}
 		}
-		filePaths = diffFiles
 	}
 
-	if len(filePaths) == 0 {
-		return 0, 0, fmt.Errorf("no files to pull")
+	if input.GitAdd {
+		if err := uc.GitGateway.AddAll(input.RepoPath); err != nil {
+			return 0, 0, fmt.Errorf("failed to stage files locally: %w", err)
+		}
+		uc.logger.Info("Files staged locally (git add)")
 	}
 
-	// Ensure target directory exists.
-	if err := os.MkdirAll(input.RepoPath, 0o755); err != nil {
-		return 0, 0, fmt.Errorf("failed to create repo path: %w", err)
-	}
-
-	// Step 2: Download each file.
-	startTime := time.Now()
-	downloaded := 0
-	for _, fp := range filePaths {
-		content, err := uc.GitLabGateway.GetRawFile(project.ID, fp, input.BranchName)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to download file %q: %w", fp, err)
-		}
-
-		localPath := filepath.Join(input.RepoPath, filepath.FromSlash(fp))
-		if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
-			return 0, 0, fmt.Errorf("failed to create directory for %q: %w", fp, err)
-		}
-
-		if err := os.WriteFile(localPath, content, 0o644); err != nil {
-			return 0, 0, fmt.Errorf("failed to write file %q: %w", fp, err)
-		}
-
-		downloaded++
-		uc.logger.Infof("Pulled: %s", fp)
-	}
 	duration := time.Since(startTime)
-
 	return duration, downloaded, nil
+}
+
+func (uc *PullFilesUseCase) downloadFile(projectID int, filePath, ref, repoPath string) error {
+	content, err := uc.GitLabGateway.GetRawFile(projectID, filePath, ref)
+	if err != nil {
+		return fmt.Errorf("failed to download file %q: %w", filePath, err)
+	}
+
+	localPath := filepath.Join(repoPath, filepath.FromSlash(filePath))
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create directory for %q: %w", filePath, err)
+	}
+
+	if err := os.WriteFile(localPath, content, 0o644); err != nil {
+		return fmt.Errorf("failed to write file %q: %w", filePath, err)
+	}
+
+	uc.logger.Infof("Pulled: %s", filePath)
+	return nil
 }
