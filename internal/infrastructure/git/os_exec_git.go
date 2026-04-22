@@ -22,6 +22,7 @@ func NewOSExecGitGateway(log logger.Logger) *OSExecGitGateway {
 }
 
 // CreateOrphanBranch creates a new orphan branch in the given repository.
+// It only switches to the orphan branch; staging and committing is left to the caller.
 func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *entity.Repository, branch *entity.Branch, sourceBranch string) error {
 	// Command 1: Create the orphan branch
 	args := []string{"checkout", "--orphan", branch.Name}
@@ -34,34 +35,6 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 		g.logger.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
 		return err
 	}
-
-	// Command 2: Stage all current files for the initial commit
-	cmdAdd := exec.Command("git", "add", ".")
-	cmdAdd.Dir = repository.Path
-	if output, err := cmdAdd.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to stage files for commit: %w, output: %s", err, string(output))
-		return err
-	}
-
-	// Command 3: Make an initial commit with the current files
-	cmdCommit := exec.Command("git", "commit", "-m", "Initial commit on orphan branch")
-	cmdCommit.Dir = repository.Path
-	if output, err := cmdCommit.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to make initial commit: %w, output: %s", err, string(output))
-		return err
-	}
-
-	// Command 4: Get the SHA of the new commit
-	cmdRevParse := exec.Command("git", "rev-parse", "HEAD")
-	cmdRevParse.Dir = repository.Path
-	output, err := cmdRevParse.CombinedOutput()
-	if err != nil {
-		g.logger.Errorf("failed to get new commit SHA: %w, output: %s", err, string(output))
-		return err
-	}
-
-	// We are not returning the SHA, but we are logging it for debugging purposes.
-	g.logger.Infof("new commit SHA: %s", strings.TrimSpace(string(output)))
 
 	return nil
 }

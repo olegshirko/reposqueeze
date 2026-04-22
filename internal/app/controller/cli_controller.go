@@ -13,7 +13,9 @@ import (
 type CLIController struct {
 	createFromLocalUseCase  *usecase.CreateAndPushOrphanBranchUseCase
 	createFromGitlabUseCase *usecase.CreateOrphanBranchFromGitlabUseCase
-	gitlabGateway           gateway.GitLabGateway // Изменено
+	pushFilesUseCase        *usecase.PushFilesUseCase
+	pullFilesUseCase        *usecase.PullFilesUseCase
+	gitlabGateway           gateway.GitLabGateway
 	logger                  logger.Logger
 }
 
@@ -21,13 +23,17 @@ type CLIController struct {
 func NewCLIController(
 	createFromLocalUseCase *usecase.CreateAndPushOrphanBranchUseCase,
 	createFromGitlabUseCase *usecase.CreateOrphanBranchFromGitlabUseCase,
-	gitlabGateway gateway.GitLabGateway, // Изменено
+	pushFilesUseCase *usecase.PushFilesUseCase,
+	pullFilesUseCase *usecase.PullFilesUseCase,
+	gitlabGateway gateway.GitLabGateway,
 	log logger.Logger,
 ) *CLIController {
 	return &CLIController{
 		createFromLocalUseCase:  createFromLocalUseCase,
 		createFromGitlabUseCase: createFromGitlabUseCase,
-		gitlabGateway:           gitlabGateway, // Добавлено
+		pushFilesUseCase:        pushFilesUseCase,
+		pullFilesUseCase:        pullFilesUseCase,
+		gitlabGateway:           gitlabGateway,
 		logger:                  log,
 	}
 }
@@ -47,6 +53,10 @@ func (c *CLIController) Run(args []string) {
 		c.handleCreateFromLocal(remainingArgs)
 	case "create-from-gitlab":
 		c.handleCreateFromGitlab(remainingArgs)
+	case "push-files":
+		c.handlePushFiles(remainingArgs)
+	case "pull-files":
+		c.handlePullFiles(remainingArgs)
 	default:
 		c.logger.Errorf("Unknown command: %s", command)
 		c.printUsage()
@@ -111,9 +121,71 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 	c.logger.Infof("Copied %d files in %s.", filesCount, duration)
 }
 
+func (c *CLIController) handlePushFiles(args []string) {
+	fs := flag.NewFlagSet("push-files", flag.ExitOnError)
+	repoPath := fs.String("repo-path", "", "Path to the repository")
+	branchName := fs.String("branch-name", "", "Target branch on GitLab")
+	files := fs.String("files", "", "Comma-separated list of relative file paths")
+
+	fs.Parse(args)
+
+	if *repoPath == "" || *branchName == "" || *files == "" {
+		fs.Usage()
+		return
+	}
+
+	input := usecase.PushFilesInput{
+		RepoPath:   *repoPath,
+		BranchName: *branchName,
+		Files:      *files,
+	}
+
+	c.logger.Infof("Pushing files to project derived from: %s", input.RepoPath)
+	duration, filesCount, err := c.pushFilesUseCase.Execute(context.Background(), input)
+	if err != nil {
+		c.logger.Errorf("Error: %v", err)
+		return
+	}
+
+	c.logger.Infof("Successfully pushed %d file(s) to branch '%s'.", filesCount, input.BranchName)
+	c.logger.Infof("Operation took %s.", duration)
+}
+
+func (c *CLIController) handlePullFiles(args []string) {
+	fs := flag.NewFlagSet("pull-files", flag.ExitOnError)
+	repoPath := fs.String("repo-path", "", "Path to the local repository")
+	branchName := fs.String("branch-name", "master", "Source branch on GitLab")
+	files := fs.String("files", "", "Comma-separated list of relative file paths (optional; if omitted, pulls diff from latest commit)")
+
+	fs.Parse(args)
+
+	if *repoPath == "" {
+		fs.Usage()
+		return
+	}
+
+	input := usecase.PullFilesInput{
+		RepoPath:   *repoPath,
+		BranchName: *branchName,
+		Files:      *files,
+	}
+
+	c.logger.Infof("Pulling files from project derived from: %s", input.RepoPath)
+	duration, filesCount, err := c.pullFilesUseCase.Execute(context.Background(), input)
+	if err != nil {
+		c.logger.Errorf("Error: %v", err)
+		return
+	}
+
+	c.logger.Infof("Successfully pulled %d file(s) from branch '%s'.", filesCount, input.BranchName)
+	c.logger.Infof("Operation took %s.", duration)
+}
+
 func (c *CLIController) printUsage() {
 	c.logger.Info("Usage: go run cmd/app/main.go <command> [options]")
 	c.logger.Info("Commands:")
 	c.logger.Info("  create-from-local   --repo-path <path> --branch-name <name> [--from <source>]")
 	c.logger.Info("  create-from-gitlab  --repo-path <path> --branch-name <name>")
+	c.logger.Info("  push-files          --repo-path <path> --branch-name <name> --files <file1,file2,...>")
+	c.logger.Info("  pull-files          --repo-path <path> --branch-name <name> [--files <file1,file2,...>]")
 }

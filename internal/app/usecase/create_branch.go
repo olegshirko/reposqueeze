@@ -63,7 +63,7 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 		return 0, 0, err
 	}
 
-	// Step 2: Create the orphan branch locally and commit all files.
+	// Step 2: Create the orphan branch locally.
 	repo := &entity.Repository{Path: input.RepoPath}
 	branch := &entity.Branch{Name: input.BranchName}
 	err = uc.GitGateway.CreateOrphanBranch(ctx, repo, branch, input.SourceBranch)
@@ -71,7 +71,23 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 		return 0, 0, err
 	}
 
+	// Ensure we always clean up the local orphan branch on exit.
+	defer func() {
+		if err := uc.GitGateway.CheckoutBranch(input.RepoPath, input.SourceBranch); err != nil {
+			uc.logger.Warnf("Warning: failed to switch back to branch %s: %v\n", input.SourceBranch, err)
+		}
+		if err := uc.GitGateway.DeleteLocalBranch(input.RepoPath, input.BranchName); err != nil {
+			uc.logger.Warnf("Warning: failed to clean up local orphan branch %s: %v\n", input.BranchName, err)
+		}
+	}()
+
+	// Remove vendor directory before staging so it never enters the commit.
 	if err := uc.GitGateway.RemoveDirectory(input.RepoPath, "vendor"); err != nil {
+		return 0, 0, err
+	}
+
+	// Stage the remaining files and commit.
+	if err := uc.GitGateway.Commit(input.RepoPath, "Initial commit on orphan branch"); err != nil {
 		return 0, 0, err
 	}
 
@@ -80,17 +96,6 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 	if err != nil {
 		return 0, 0, err
 	}
-
-	defer func() {
-		// Switch back to the original branch first
-		if err := uc.GitGateway.CheckoutBranch(input.RepoPath, input.SourceBranch); err != nil {
-			uc.logger.Warnf("Warning: failed to switch back to branch %s: %v\n", input.SourceBranch, err)
-		}
-		// Then delete the orphan branch
-		if err := uc.GitGateway.DeleteLocalBranch(input.RepoPath, input.BranchName); err != nil {
-			uc.logger.Warnf("Warning: failed to clean up local orphan branch %s: %v\n", input.BranchName, err)
-		}
-	}()
 
 	// // Step 2: Create the branch on the remote using the commit SHA.
 	// err = uc.GitLabGateway.CreateRemoteBranch(ctx, input.GitLabProjectID, input.BranchName, commitSHA)

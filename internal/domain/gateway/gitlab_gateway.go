@@ -23,4 +23,7 @@ type GitLabGateway interface {
 	DeleteProject(projectID int) error
 	CreateProject(name string) (*entity.Project, error)
 	DownloadRepoArchive(projectID int, writer *bytes.Buffer) error
+	GetLastCommitSHA(projectID int, branchName string) (string, error)
+	GetCommitDiff(projectID int, sha string) ([]string, error)
+	GetRawFile(projectID int, filePath, ref string) ([]byte, error)
 }
