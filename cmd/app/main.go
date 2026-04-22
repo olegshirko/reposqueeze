@@ -12,14 +12,14 @@ import (
 
 func main() {
 	// 0. Create logger
-	log := logger.NewLogger()
-
-	// 1. Create instances of the gateway implementations (Frameworks & Drivers)
-	gitGateway := git.NewOSExecGitGateway(log)
 	gitlabToken := os.Getenv("GITLAB_TOKEN")
 	if gitlabToken == "" {
 		panic("GITLAB_TOKEN environment variable not set")
 	}
+	log := logger.NewLoggerWithMasking(gitlabToken)
+
+	// 1. Create instances of the gateway implementations (Frameworks & Drivers)
+	gitGateway := git.NewOSExecGitGateway(log)
 	gitlabGateway := gitlab.NewHTTPGitLabGateway(gitlabToken, log)
 
 	// 2. Create an instance of the use case, injecting the gateways (Use Cases)

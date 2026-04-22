@@ -3,6 +3,7 @@ package logger
 import (
 	"io"
 	"os"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -64,6 +65,21 @@ func (l *logrusLogger) Debugf(format string, args ...interface{}) {
 	l.logger.Debugf(format, args...)
 }
 
+// maskingWriter wraps an io.Writer and replaces sensitive tokens with ***.
+type maskingWriter struct {
+	writer io.Writer
+	token  string
+}
+
+func (m *maskingWriter) Write(p []byte) (int, error) {
+	if m.token == "" {
+		return m.writer.Write(p)
+	}
+	sanitized := strings.ReplaceAll(string(p), m.token, "***")
+	_, err := m.writer.Write([]byte(sanitized))
+	return len(p), err
+}
+
 func NewLogger() Logger {
 	log := logrus.New()
 	log.SetOutput(os.Stdout)
@@ -74,6 +90,14 @@ func NewLogger() Logger {
 func NewLoggerWithWriter(writer io.Writer) Logger {
 	log := logrus.New()
 	log.SetOutput(writer)
+	log.SetLevel(logrus.DebugLevel)
+	return &logrusLogger{logger: log}
+}
+
+// NewLoggerWithMasking creates a logger that redacts the given token in every output line.
+func NewLoggerWithMasking(token string) Logger {
+	log := logrus.New()
+	log.SetOutput(&maskingWriter{writer: os.Stdout, token: token})
 	log.SetLevel(logrus.DebugLevel)
 	return &logrusLogger{logger: log}
 }
