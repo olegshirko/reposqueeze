@@ -128,7 +128,7 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 func (c *CLIController) handlePushFiles(args []string) {
 	fs := flag.NewFlagSet("push-files", flag.ExitOnError)
 	branchName := fs.String("branch-name", "", "Target branch on GitLab")
-	files := fs.String("files", "", "Comma-separated list of relative file paths")
+	files := fs.String("files", "", "Comma-separated list of relative file paths (e.g. README.md,docs/guide.md,src/main.go)")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
 
@@ -157,7 +157,7 @@ func (c *CLIController) handlePushFiles(args []string) {
 func (c *CLIController) handlePullFiles(args []string) {
 	fs := flag.NewFlagSet("pull-files", flag.ExitOnError)
 	branchName := fs.String("branch-name", "master", "Source branch on GitLab")
-	files := fs.String("files", "", "Comma-separated list of relative file paths (optional; if omitted, pulls diff from latest commit(s))")
+	files := fs.String("files", "", "Comma-separated list of relative file paths, e.g. README.md,docs/guide.md (optional; if omitted, pulls diff from latest commit(s))")
 	commits := fs.Int("commits", 1, "Number of latest commits to pull diffs from")
 	gitAdd := fs.Bool("git-add", false, "Stage all downloaded files in local git (git add)")
 
@@ -260,7 +260,9 @@ func (c *CLIController) printUsage() {
 	c.logger.Info("Commands:")
 	c.logger.Info("  create-from-local   <path> --branch-name <name> [--from <source>]")
 	c.logger.Info("  create-from-gitlab  <path> --branch-name <name>")
-	c.logger.Info("  push-files          <path> --branch-name <name> --files <file1,file2,...>")
-	c.logger.Info("  pull-files          <path> --branch-name <name> [--files <file1,file2,...>]")
+	c.logger.Info("  push-files          <path> --branch-name <name> --files <rel/path/file1>,<rel/path/file2>,...")
+	c.logger.Info("                        Example: --files README.md,docs/guide.md,src/main.go")
+	c.logger.Info("  pull-files          <path> --branch-name <name> [--files <rel/path/file1>,<rel/path/file2>,...]")
+	c.logger.Info("                        Example: --files README.md,docs/guide.md")
 	c.logger.Info("  push-folder         <path> [--project-name <name>] [--branch-name <name>]")
 }
