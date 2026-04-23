@@ -70,19 +70,18 @@ func (c *CLIController) Run(args []string) {
 
 func (c *CLIController) handleCreateFromLocal(args []string) {
 	fs := flag.NewFlagSet("create-from-local", flag.ExitOnError)
-	repoPath := fs.String("repo-path", "", "Path to the repository")
 	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
 	sourceBranch := fs.String("from", "master", "Source branch to create orphan from")
 
 	fs.Parse(args)
 
-	if *repoPath == "" || *branchName == "" {
+	if len(fs.Args()) == 0 || *branchName == "" {
 		fs.Usage()
 		return
 	}
 
 	input := usecase.Input{
-		RepoPath:     *repoPath,
+		RepoPath:     fs.Args()[0],
 		BranchName:   *branchName,
 		SourceBranch: *sourceBranch,
 	}
@@ -100,18 +99,17 @@ func (c *CLIController) handleCreateFromLocal(args []string) {
 
 func (c *CLIController) handleCreateFromGitlab(args []string) {
 	fs := flag.NewFlagSet("create-from-gitlab", flag.ExitOnError)
-	repoPath := fs.String("repo-path", "", "Path to the repository")
 	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
 
 	fs.Parse(args)
 
-	if *repoPath == "" || *branchName == "" {
+	if len(fs.Args()) == 0 || *branchName == "" {
 		fs.Usage()
 		return
 	}
 
 	input := usecase.CreateOrphanBranchFromGitlabInput{
-		RepoPath:   *repoPath,
+		RepoPath:   fs.Args()[0],
 		BranchName: *branchName,
 	}
 
@@ -128,19 +126,18 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 
 func (c *CLIController) handlePushFiles(args []string) {
 	fs := flag.NewFlagSet("push-files", flag.ExitOnError)
-	repoPath := fs.String("repo-path", "", "Path to the repository")
 	branchName := fs.String("branch-name", "", "Target branch on GitLab")
 	files := fs.String("files", "", "Comma-separated list of relative file paths")
 
 	fs.Parse(args)
 
-	if *repoPath == "" || *branchName == "" || *files == "" {
+	if len(fs.Args()) == 0 || *branchName == "" || *files == "" {
 		fs.Usage()
 		return
 	}
 
 	input := usecase.PushFilesInput{
-		RepoPath:   *repoPath,
+		RepoPath:   fs.Args()[0],
 		BranchName: *branchName,
 		Files:      *files,
 	}
@@ -158,7 +155,6 @@ func (c *CLIController) handlePushFiles(args []string) {
 
 func (c *CLIController) handlePullFiles(args []string) {
 	fs := flag.NewFlagSet("pull-files", flag.ExitOnError)
-	repoPath := fs.String("repo-path", "", "Path to the local repository")
 	branchName := fs.String("branch-name", "master", "Source branch on GitLab")
 	files := fs.String("files", "", "Comma-separated list of relative file paths (optional; if omitted, pulls diff from latest commit(s))")
 	commits := fs.Int("commits", 1, "Number of latest commits to pull diffs from")
@@ -166,13 +162,13 @@ func (c *CLIController) handlePullFiles(args []string) {
 
 	fs.Parse(args)
 
-	if *repoPath == "" {
+	if len(fs.Args()) == 0 {
 		fs.Usage()
 		return
 	}
 
 	input := usecase.PullFilesInput{
-		RepoPath:   *repoPath,
+		RepoPath:   fs.Args()[0],
 		BranchName: *branchName,
 		Files:      *files,
 		Commits:    *commits,
@@ -192,19 +188,18 @@ func (c *CLIController) handlePullFiles(args []string) {
 
 func (c *CLIController) handlePushFolder(args []string) {
 	fs := flag.NewFlagSet("push-folder", flag.ExitOnError)
-	folderPath := fs.String("folder-path", "", "Path to the local folder")
 	projectName := fs.String("project-name", "", "GitLab project name (default: folder base name)")
 	branchName := fs.String("branch-name", "master", "Target branch on GitLab")
 
 	fs.Parse(args)
 
-	if *folderPath == "" {
+	if len(fs.Args()) == 0 {
 		fs.Usage()
 		return
 	}
 
 	input := usecase.PushFolderInput{
-		FolderPath:  *folderPath,
+		FolderPath:  fs.Args()[0],
 		ProjectName: *projectName,
 		BranchName:  *branchName,
 	}
@@ -221,11 +216,11 @@ func (c *CLIController) handlePushFolder(args []string) {
 }
 
 func (c *CLIController) printUsage() {
-	c.logger.Info("Usage: go run cmd/app/main.go <command> [options]")
+	c.logger.Info("Usage: reposqueeze <command> <path> [options]")
 	c.logger.Info("Commands:")
-	c.logger.Info("  create-from-local   --repo-path <path> --branch-name <name> [--from <source>]")
-	c.logger.Info("  create-from-gitlab  --repo-path <path> --branch-name <name>")
-	c.logger.Info("  push-files          --repo-path <path> --branch-name <name> --files <file1,file2,...>")
-	c.logger.Info("  pull-files          --repo-path <path> --branch-name <name> [--files <file1,file2,...>]")
-	c.logger.Info("  push-folder         --folder-path <path> [--project-name <name>] [--branch-name <name>]")
+	c.logger.Info("  create-from-local   <path> --branch-name <name> [--from <source>]")
+	c.logger.Info("  create-from-gitlab  <path> --branch-name <name>")
+	c.logger.Info("  push-files          <path> --branch-name <name> --files <file1,file2,...>")
+	c.logger.Info("  pull-files          <path> --branch-name <name> [--files <file1,file2,...>]")
+	c.logger.Info("  push-folder         <path> [--project-name <name>] [--branch-name <name>]")
 }
