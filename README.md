@@ -142,12 +142,25 @@ git checkout <ветка куда нужно сделать merge>
 ```bash
 git merge orphan-branch-in-your-project --allow-unrelated-historie
 ```
+## Настройка токена GitLab
+
+Для работы с GitLab API необходимо создать **Personal Access Token**:
+
+1. В GitLab перейдите в **Edit profile** → **Access Tokens**.
+2. Нажмите **Add new token**.
+3. Укажите **Name** и выберите scope **`api`**.
+4. Нажмите **Create personal access token** и скопируйте значение токена.
+
+> **Важно:** Скопируйте токен сразу после создания — позже его будет невозможно просмотреть.
+
+[СКРИНШОТ БУДЕТ ЗДЕСЬ]
+
 ## Переменные окружения
 
 `reposqueeze` может использовать переменные окружения для конфигурации.
 
 *   `GITLAB_TOKEN`: **(Обязательно)** Ваш персональный токен доступа GitLab. Используется для аутентификации при взаимодействии с GitLab API.
-    *   Пример: `export GITLAB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"`
+    *   Пример: `export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"`
 *   `GITLAB_BASE_URL`: **(Опционально)** Базовый URL вашего экземпляра GitLab. Если не указан, по умолчанию используется `https://gitlab.com`.
     *   Пример: `export GITLAB_BASE_URL="https://your-private-gitlab.com"`
 

@@ -15,6 +15,7 @@ type CLIController struct {
 	createFromGitlabUseCase *usecase.CreateOrphanBranchFromGitlabUseCase
 	pushFilesUseCase        *usecase.PushFilesUseCase
 	pullFilesUseCase        *usecase.PullFilesUseCase
+	pushFolderUseCase       *usecase.PushFolderUseCase
 	gitlabGateway           gateway.GitLabGateway
 	logger                  logger.Logger
 }
@@ -25,6 +26,7 @@ func NewCLIController(
 	createFromGitlabUseCase *usecase.CreateOrphanBranchFromGitlabUseCase,
 	pushFilesUseCase *usecase.PushFilesUseCase,
 	pullFilesUseCase *usecase.PullFilesUseCase,
+	pushFolderUseCase *usecase.PushFolderUseCase,
 	gitlabGateway gateway.GitLabGateway,
 	log logger.Logger,
 ) *CLIController {
@@ -33,6 +35,7 @@ func NewCLIController(
 		createFromGitlabUseCase: createFromGitlabUseCase,
 		pushFilesUseCase:        pushFilesUseCase,
 		pullFilesUseCase:        pullFilesUseCase,
+		pushFolderUseCase:       pushFolderUseCase,
 		gitlabGateway:           gitlabGateway,
 		logger:                  log,
 	}
@@ -57,6 +60,8 @@ func (c *CLIController) Run(args []string) {
 		c.handlePushFiles(remainingArgs)
 	case "pull-files":
 		c.handlePullFiles(remainingArgs)
+	case "push-folder":
+		c.handlePushFolder(remainingArgs)
 	default:
 		c.logger.Errorf("Unknown command: %s", command)
 		c.printUsage()
@@ -185,6 +190,36 @@ func (c *CLIController) handlePullFiles(args []string) {
 	c.logger.Infof("Operation took %s.", duration)
 }
 
+func (c *CLIController) handlePushFolder(args []string) {
+	fs := flag.NewFlagSet("push-folder", flag.ExitOnError)
+	folderPath := fs.String("folder-path", "", "Path to the local folder")
+	projectName := fs.String("project-name", "", "GitLab project name (default: folder base name)")
+	branchName := fs.String("branch-name", "master", "Target branch on GitLab")
+
+	fs.Parse(args)
+
+	if *folderPath == "" {
+		fs.Usage()
+		return
+	}
+
+	input := usecase.PushFolderInput{
+		FolderPath:  *folderPath,
+		ProjectName: *projectName,
+		BranchName:  *branchName,
+	}
+
+	c.logger.Infof("Pushing folder to GitLab: %s", input.FolderPath)
+	duration, filesCount, err := c.pushFolderUseCase.Execute(context.Background(), input)
+	if err != nil {
+		c.logger.Errorf("Error: %v", err)
+		return
+	}
+
+	c.logger.Infof("Successfully pushed %d file(s) to project %q, branch %q.", filesCount, input.ProjectName, input.BranchName)
+	c.logger.Infof("Operation took %s.", duration)
+}
+
 func (c *CLIController) printUsage() {
 	c.logger.Info("Usage: go run cmd/app/main.go <command> [options]")
 	c.logger.Info("Commands:")
@@ -192,4 +227,5 @@ func (c *CLIController) printUsage() {
 	c.logger.Info("  create-from-gitlab  --repo-path <path> --branch-name <name>")
 	c.logger.Info("  push-files          --repo-path <path> --branch-name <name> --files <file1,file2,...>")
 	c.logger.Info("  pull-files          --repo-path <path> --branch-name <name> [--files <file1,file2,...>]")
+	c.logger.Info("  push-folder         --folder-path <path> [--project-name <name>] [--branch-name <name>]")
 }

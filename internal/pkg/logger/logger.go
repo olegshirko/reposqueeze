@@ -84,6 +84,9 @@ func NewLogger() Logger {
 	log := logrus.New()
 	log.SetOutput(os.Stdout)
 	log.SetLevel(logrus.DebugLevel)
+	log.SetFormatter(&logrus.TextFormatter{
+		ForceColors: true,
+	})
 	return &logrusLogger{logger: log}
 }
 
@@ -91,6 +94,9 @@ func NewLoggerWithWriter(writer io.Writer) Logger {
 	log := logrus.New()
 	log.SetOutput(writer)
 	log.SetLevel(logrus.DebugLevel)
+	log.SetFormatter(&logrus.TextFormatter{
+		ForceColors: true,
+	})
 	return &logrusLogger{logger: log}
 }
 
@@ -99,5 +105,8 @@ func NewLoggerWithMasking(token string) Logger {
 	log := logrus.New()
 	log.SetOutput(&maskingWriter{writer: os.Stdout, token: token})
 	log.SetLevel(logrus.DebugLevel)
+	log.SetFormatter(&logrus.TextFormatter{
+		ForceColors: true,
+	})
 	return &logrusLogger{logger: log}
 }
