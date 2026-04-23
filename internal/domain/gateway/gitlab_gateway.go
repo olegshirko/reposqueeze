@@ -41,4 +41,5 @@ type GitLabGateway interface {
 	GetCommits(projectID int, branchName string, limit int) ([]CommitInfo, error)
 	GetCommitDiff(projectID int, sha string) ([]DiffEntry, error)
 	GetRawFile(projectID int, filePath, ref string) ([]byte, error)
+	FileExists(projectID int, filePath, ref string) (bool, error)
 }

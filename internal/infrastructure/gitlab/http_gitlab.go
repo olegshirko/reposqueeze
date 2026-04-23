@@ -419,3 +419,32 @@ func (g *HTTPGitLabGateway) GetRawFile(projectID int, filePath, ref string) ([]b
 
 	return ioutil.ReadAll(resp.Body)
 }
+
+func (g *HTTPGitLabGateway) FileExists(projectID int, filePath, ref string) (bool, error) {
+	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/files/%s/raw?ref=%s",
+		projectID, url.PathEscape(filePath), url.QueryEscape(ref))
+
+	req, err := http.NewRequest("HEAD", apiURL, nil)
+	if err != nil {
+		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		return false, err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+	resp, err := g.Client.Do(req)
+	if err != nil {
+		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("gitlab api returned unexpected status for file exists: %s", resp.Status)
+}

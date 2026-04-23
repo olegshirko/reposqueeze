@@ -83,8 +83,19 @@ func (uc *PushFilesUseCase) Execute(ctx context.Context, input PushFilesInput) (
 		// Normalize path separators to forward slashes for GitLab.
 		gitPath := filepath.ToSlash(fp)
 
+		// Determine whether the file already exists on the target branch.
+		exists, err := uc.GitLabGateway.FileExists(project.ID, gitPath, input.BranchName)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to check if file %q exists: %w", fp, err)
+		}
+
+		action := "create"
+		if exists {
+			action = "update"
+		}
+
 		actions = append(actions, gateway.CommitAction{
-			Action:   "create",
+			Action:   action,
 			FilePath: gitPath,
 			Content:  string(content),
 			Encoding: "text",
