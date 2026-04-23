@@ -3,9 +3,10 @@ package controller
 import (
 	"context"
 	"flag"
+	"strings"
 
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
-	"github.com/olegshirko/reposqueeze/internal/domain/gateway" // Добавлено
+	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
@@ -73,7 +74,7 @@ func (c *CLIController) handleCreateFromLocal(args []string) {
 	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
 	sourceBranch := fs.String("from", "master", "Source branch to create orphan from")
 
-	fs.Parse(args)
+	fs.Parse(reorderFlagsFirst(fs, args))
 
 	if len(fs.Args()) == 0 || *branchName == "" {
 		fs.Usage()
@@ -101,7 +102,7 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 	fs := flag.NewFlagSet("create-from-gitlab", flag.ExitOnError)
 	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
 
-	fs.Parse(args)
+	fs.Parse(reorderFlagsFirst(fs, args))
 
 	if len(fs.Args()) == 0 || *branchName == "" {
 		fs.Usage()
@@ -129,7 +130,7 @@ func (c *CLIController) handlePushFiles(args []string) {
 	branchName := fs.String("branch-name", "", "Target branch on GitLab")
 	files := fs.String("files", "", "Comma-separated list of relative file paths")
 
-	fs.Parse(args)
+	fs.Parse(reorderFlagsFirst(fs, args))
 
 	if len(fs.Args()) == 0 || *branchName == "" || *files == "" {
 		fs.Usage()
@@ -160,7 +161,7 @@ func (c *CLIController) handlePullFiles(args []string) {
 	commits := fs.Int("commits", 1, "Number of latest commits to pull diffs from")
 	gitAdd := fs.Bool("git-add", false, "Stage all downloaded files in local git (git add)")
 
-	fs.Parse(args)
+	fs.Parse(reorderFlagsFirst(fs, args))
 
 	if len(fs.Args()) == 0 {
 		fs.Usage()
@@ -191,7 +192,7 @@ func (c *CLIController) handlePushFolder(args []string) {
 	projectName := fs.String("project-name", "", "GitLab project name (default: folder base name)")
 	branchName := fs.String("branch-name", "master", "Target branch on GitLab")
 
-	fs.Parse(args)
+	fs.Parse(reorderFlagsFirst(fs, args))
 
 	if len(fs.Args()) == 0 {
 		fs.Usage()
@@ -213,6 +214,45 @@ func (c *CLIController) handlePushFolder(args []string) {
 
 	c.logger.Infof("Successfully pushed %d file(s) to project %q, branch %q.", filesCount, input.ProjectName, input.BranchName)
 	c.logger.Infof("Operation took %s.", duration)
+}
+
+// reorderFlagsFirst moves all flags (and their values) to the front of args,
+// so that positional arguments can appear before flags.
+// This makes commands like "pull-files ../repo --branch-name main" work
+// with the standard Go flag package.
+func reorderFlagsFirst(fs *flag.FlagSet, args []string) []string {
+	var flags []string
+	var positional []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			positional = append(positional, arg)
+			continue
+		}
+
+		flags = append(flags, arg)
+
+		// If the flag is in --key=value form, the value is already part of the flag.
+		if strings.Contains(arg, "=") {
+			continue
+		}
+
+		// Determine whether the flag takes a value or is a boolean flag.
+		name := strings.TrimLeft(arg, "-")
+		f := fs.Lookup(name)
+		isBool := false
+		if f != nil {
+			_, isBool = f.Value.(interface{ IsBoolFlag() bool })
+		}
+
+		if !isBool && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			flags = append(flags, args[i+1])
+			i++
+		}
+	}
+
+	return append(flags, positional...)
 }
 
 func (c *CLIController) printUsage() {
