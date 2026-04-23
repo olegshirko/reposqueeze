@@ -58,6 +58,8 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 		return 0, 0, fmt.Errorf("failed to create repo path: %w", err)
 	}
 
+	uc.logger.Infof("Saving files to: %s", input.RepoPath)
+
 	startTime := time.Now()
 	downloaded := 0
 
@@ -140,6 +142,6 @@ func (uc *PullFilesUseCase) downloadFile(projectID int, filePath, ref, repoPath 
 		return fmt.Errorf("failed to write file %q: %w", filePath, err)
 	}
 
-	uc.logger.Infof("Pulled: %s", filePath)
+	uc.logger.Infof("Pulled: %s -> %s", filePath, localPath)
 	return nil
 }
