@@ -4,7 +4,7 @@ BINARY_PATH=./bin/$(BINARY_NAME)
 BINARY_PATH_LINUX=./bin/$(BINARY_NAME)-linux
 
 # Phony targets to avoid conflicts with files of the same name
-.PHONY: all build build-linux pack pack-linux help
+.PHONY: all build build-linux pack pack-linux tui help
 
 # The default target is 'help'
 all: 
@@ -39,12 +39,17 @@ pack-linux: build-linux
 	@upx --best --lzma $(BINARY_PATH_LINUX)
 	@echo "Packing complete."
 
+# Run the TUI mode (builds first)
+tui: build
+	@$(BINARY_PATH) tui
+
 # Help target for self-documentation
 help:
 	@echo "Usage: make [target]"
 	@echo "------------------"
 	@echo "Available targets:"
 	@echo "  build         Compile the application for the current OS."
+	@echo "  tui           Build and launch the interactive TUI mode."
 	@echo "  pack          Build and then pack the application with upx."
 	@echo "  build-linux   Compile the application for Linux."
 	@echo "  pack-linux    Build and then pack the Linux application with upx."

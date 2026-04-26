@@ -3,7 +3,9 @@ package main
 import (
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/olegshirko/reposqueeze/internal/app/controller"
+	"github.com/olegshirko/reposqueeze/internal/app/tui"
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/gitlab"
@@ -22,17 +24,28 @@ func main() {
 	gitGateway := git.NewOSExecGitGateway(log)
 	gitlabGateway := gitlab.NewHTTPGitLabGateway(gitlabToken, log)
 
-	// 2. Create an instance of the use case, injecting the gateways (Use Cases)
+	// 2. TUI mode
+	if len(os.Args) > 1 && os.Args[1] == "tui" {
+		m := tui.NewApp(gitGateway, gitlabGateway, gitlabToken, log)
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			log.Errorf("TUI error: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// 3. Create an instance of the use case, injecting the gateways (Use Cases)
 	createBranchUseCase := usecase.NewCreateAndPushOrphanBranchUseCase(gitGateway, gitlabGateway, log)
 	createOrphanBranchFromGitlabUseCase := usecase.NewCreateOrphanBranchFromGitlabUseCase(gitGateway, gitlabGateway, log)
 	pushFilesUseCase := usecase.NewPushFilesUseCase(gitlabGateway, log)
 	pullFilesUseCase := usecase.NewPullFilesUseCase(gitGateway, gitlabGateway, log)
 	pushFolderUseCase := usecase.NewPushFolderUseCase(gitlabGateway, log)
 
-	// 3. Create an instance of the controller, injecting the use case (Interface Adapters)
+	// 4. Create an instance of the controller, injecting the use case (Interface Adapters)
 	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, gitlabGateway, log)
 
-	// 4. Run the controller with command-line arguments
+	// 5. Run the controller with command-line arguments
 	// os.Args[1:] excludes the program name
 	cliController.Run(os.Args[1:])
 }
