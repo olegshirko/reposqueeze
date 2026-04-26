@@ -321,6 +321,40 @@ func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buf
 	return nil
 }
 
+func (g *HTTPGitLabGateway) GetBranches(projectID int) ([]gateway.BranchInfo, error) {
+	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/branches?per_page=100", projectID)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		return nil, err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+	resp, err := g.Client.Do(req)
+	if err != nil {
+		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		err := fmt.Errorf("gitlab api returned non-200 status for list branches: %s, body: %s", resp.Status, string(body))
+		g.logger.Error(err)
+		return nil, err
+	}
+
+	var branches []gateway.BranchInfo
+	if err := json.NewDecoder(resp.Body).Decode(&branches); err != nil {
+		g.logger.Errorf("failed to decode branches: %w", err)
+		return nil, err
+	}
+
+	return branches, nil
+}
+
 func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit int) ([]gateway.CommitInfo, error) {
 	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/commits?ref_name=%s&per_page=%d",
 		projectID, url.QueryEscape(branchName), limit)

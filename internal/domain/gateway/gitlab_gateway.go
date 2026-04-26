@@ -30,6 +30,12 @@ type DiffEntry struct {
 	NewFile     bool   `json:"new_file"`
 }
 
+// BranchInfo holds basic metadata about a GitLab repository branch.
+type BranchInfo struct {
+	Name    string `json:"name"`
+	Default bool   `json:"default"`
+}
+
 // GitLabGateway defines the interface for interacting with the GitLab API.
 type GitLabGateway interface {
 	CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []CommitAction) error
@@ -38,6 +44,7 @@ type GitLabGateway interface {
 	DeleteProject(projectID int) error
 	CreateProject(name string) (*entity.Project, error)
 	DownloadRepoArchive(projectID int, writer *bytes.Buffer) error
+	GetBranches(projectID int) ([]BranchInfo, error)
 	GetCommits(projectID int, branchName string, limit int) ([]CommitInfo, error)
 	GetCommitDiff(projectID int, sha string) ([]DiffEntry, error)
 	GetRawFile(projectID int, filePath, ref string) ([]byte, error)

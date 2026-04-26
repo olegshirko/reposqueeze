@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"flag"
+	"fmt"
 	"strings"
 
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
@@ -71,6 +72,7 @@ func (c *CLIController) Run(args []string) {
 
 func (c *CLIController) handleCreateFromLocal(args []string) {
 	fs := flag.NewFlagSet("create-from-local", flag.ExitOnError)
+	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
 	sourceBranch := fs.String("from", "master", "Source branch to create orphan from")
 
@@ -100,6 +102,7 @@ func (c *CLIController) handleCreateFromLocal(args []string) {
 
 func (c *CLIController) handleCreateFromGitlab(args []string) {
 	fs := flag.NewFlagSet("create-from-gitlab", flag.ExitOnError)
+	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
@@ -127,6 +130,7 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 
 func (c *CLIController) handlePushFiles(args []string) {
 	fs := flag.NewFlagSet("push-files", flag.ExitOnError)
+	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "", "Target branch on GitLab")
 	files := fs.String("files", "", "Comma-separated list of relative file paths (e.g. README.md,docs/guide.md,src/main.go)")
 
@@ -156,9 +160,10 @@ func (c *CLIController) handlePushFiles(args []string) {
 
 func (c *CLIController) handlePullFiles(args []string) {
 	fs := flag.NewFlagSet("pull-files", flag.ExitOnError)
+	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "master", "Source branch on GitLab")
-	files := fs.String("files", "", "Comma-separated list of relative file paths, e.g. README.md,docs/guide.md (optional; if omitted, pulls diff from latest commit(s))")
-	commits := fs.Int("commits", 1, "Number of latest commits to pull diffs from")
+	files := fs.String("files", "", "Comma-separated list of relative file paths, e.g. README.md,docs/guide.md (optional)")
+	commits := fs.Int("commits", 1, "How many latest commits to inspect for changed files when --files is omitted")
 	gitAdd := fs.Bool("git-add", false, "Stage all downloaded files in local git (git add)")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
@@ -189,6 +194,7 @@ func (c *CLIController) handlePullFiles(args []string) {
 
 func (c *CLIController) handlePushFolder(args []string) {
 	fs := flag.NewFlagSet("push-folder", flag.ExitOnError)
+	setFlagSetUsage(fs)
 	projectName := fs.String("project-name", "", "GitLab project name (default: folder base name)")
 	branchName := fs.String("branch-name", "master", "Target branch on GitLab")
 
@@ -220,6 +226,26 @@ func (c *CLIController) handlePushFolder(args []string) {
 // so that positional arguments can appear before flags.
 // This makes commands like "pull-files ../repo --branch-name main" work
 // with the standard Go flag package.
+func setFlagSetUsage(fs *flag.FlagSet) {
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "Usage of %s:\n", fs.Name())
+		var buf strings.Builder
+		oldOutput := fs.Output()
+		fs.SetOutput(&buf)
+		fs.PrintDefaults()
+		fs.SetOutput(oldOutput)
+
+		output := buf.String()
+		lines := strings.Split(output, "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(line, "  -") && !strings.HasPrefix(line, "  --") {
+				lines[i] = "  --" + strings.TrimPrefix(line, "  -")
+			}
+		}
+		fmt.Fprint(oldOutput, strings.Join(lines, "\n"))
+	}
+}
+
 func reorderFlagsFirst(fs *flag.FlagSet, args []string) []string {
 	var flags []string
 	var positional []string
@@ -263,6 +289,8 @@ func (c *CLIController) printUsage() {
 	c.logger.Info("  push-files          <path> --branch-name <name> --files <rel/path/file1>,<rel/path/file2>,...")
 	c.logger.Info("                        Example: --files README.md,docs/guide.md,src/main.go")
 	c.logger.Info("  pull-files          <path> --branch-name <name> [--files <rel/path/file1>,<rel/path/file2>,...]")
+	c.logger.Info("                        Without --files: downloads changed files from the last N commit diffs (default N=1)")
 	c.logger.Info("                        Example: --files README.md,docs/guide.md")
+	c.logger.Info("                        Example: --commits 3 (pulls changed files from last 3 commits)")
 	c.logger.Info("  push-folder         <path> [--project-name <name>] [--branch-name <name>]")
 }

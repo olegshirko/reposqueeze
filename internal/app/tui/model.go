@@ -109,7 +109,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmdSelectedMsg:
 		m.state = stateForm
-		f := newFormModel(msg.cmd)
+		f := newFormModel(msg.cmd, m.gitlabGateway)
 		m.form = &f
 		return m, m.form.Init()
 

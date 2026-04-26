@@ -121,6 +121,47 @@ func safeAtoi(s string, def int) int {
 	return n
 }
 
+// getGitLabBranches returns a sorted list of branch names from GitLab.
+func getGitLabBranches(gw gateway.GitLabGateway, repoPath string) []string {
+	projectName := filepath.Base(strings.TrimSuffix(repoPath, ".git"))
+	project, err := gw.FindProjectByName(projectName)
+	if err != nil || project == nil {
+		return nil
+	}
+	branches, err := gw.GetBranches(project.ID)
+	if err != nil {
+		return nil
+	}
+	var result []string
+	for _, b := range branches {
+		result = append(result, b.Name)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// getGitLabDefaultBranch returns the default branch name from GitLab or "master".
+func getGitLabDefaultBranch(gw gateway.GitLabGateway, repoPath string) string {
+	projectName := filepath.Base(strings.TrimSuffix(repoPath, ".git"))
+	project, err := gw.FindProjectByName(projectName)
+	if err != nil || project == nil {
+		return "master"
+	}
+	branches, err := gw.GetBranches(project.ID)
+	if err != nil {
+		return "master"
+	}
+	for _, b := range branches {
+		if b.Default {
+			return b.Name
+		}
+	}
+	if len(branches) > 0 {
+		return branches[0].Name
+	}
+	return "master"
+}
+
 // getFilesFromGitLabCommits returns a deduplicated sorted list of files that
 // were touched in the last N commits of the given GitLab branch.
 func getFilesFromGitLabCommits(gw gateway.GitLabGateway, repoPath, branchName string, commits int) ([]string, error) {

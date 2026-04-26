@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
 
 func homeDir() string {
@@ -67,7 +69,7 @@ func newCreateFromLocalForm() *huh.Form {
 	)
 }
 
-func newCreateFromGitlabForm() *huh.Form {
+func newCreateFromGitlabForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 	var repoPath, branchName string
 
 	return huh.NewForm(
@@ -81,16 +83,23 @@ func newCreateFromGitlabForm() *huh.Form {
 				FileAllowed(false).
 				Value(&repoPath),
 
-			huh.NewInput().
+			huh.NewSelect[string]().
 				Key("branchName").
 				Title("Branch name").
-				Placeholder("new-branch").
+				Description("Branch on GitLab").
+				OptionsFunc(func() []huh.Option[string] {
+					branches := getGitLabBranches(gitlabGW, repoPath)
+					if len(branches) == 0 {
+						return []huh.Option[string]{huh.NewOption("master", "master")}
+					}
+					return huh.NewOptions(branches...)
+				}, &repoPath).
 				Value(&branchName),
 		),
 	)
 }
 
-func newPushFilesForm() *huh.Form {
+func newPushFilesForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 	var repoPath, branchName string
 	var files []string
 
@@ -105,10 +114,17 @@ func newPushFilesForm() *huh.Form {
 				FileAllowed(false).
 				Value(&repoPath),
 
-			huh.NewInput().
+			huh.NewSelect[string]().
 				Key("branchName").
 				Title("Branch name").
-				Placeholder("master").
+				Description("Target branch on GitLab").
+				OptionsFunc(func() []huh.Option[string] {
+					branches := getGitLabBranches(gitlabGW, repoPath)
+					if len(branches) == 0 {
+						return []huh.Option[string]{huh.NewOption("master", "master")}
+					}
+					return huh.NewOptions(branches...)
+				}, &repoPath).
 				Value(&branchName),
 
 			huh.NewMultiSelect[string]().
@@ -127,7 +143,7 @@ func newPushFilesForm() *huh.Form {
 	)
 }
 
-func newPullFilesStep1Form() *huh.Form {
+func newPullFilesStep1Form(gitlabGW gateway.GitLabGateway) *huh.Form {
 	var repoPath, branchName, commits string
 
 	return huh.NewForm(
@@ -141,10 +157,17 @@ func newPullFilesStep1Form() *huh.Form {
 				FileAllowed(false).
 				Value(&repoPath),
 
-			huh.NewInput().
+			huh.NewSelect[string]().
 				Key("branchName").
 				Title("Branch name").
-				Placeholder("master").
+				Description("Source branch on GitLab").
+				OptionsFunc(func() []huh.Option[string] {
+					branches := getGitLabBranches(gitlabGW, repoPath)
+					if len(branches) == 0 {
+						return []huh.Option[string]{huh.NewOption("master", "master")}
+					}
+					return huh.NewOptions(branches...)
+				}, &repoPath).
 				Value(&branchName),
 
 			huh.NewInput().
@@ -206,17 +229,17 @@ func newPushFolderForm() *huh.Form {
 }
 
 // buildForm returns a huh.Form for the given command.
-func buildForm(cmd string) *huh.Form {
+func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 	var form *huh.Form
 	switch cmd {
 	case cmdCreateFromLocal:
 		form = newCreateFromLocalForm()
 	case cmdCreateFromGitlab:
-		form = newCreateFromGitlabForm()
+		form = newCreateFromGitlabForm(gitlabGW)
 	case cmdPushFiles:
-		form = newPushFilesForm()
+		form = newPushFilesForm(gitlabGW)
 	case cmdPullFiles:
-		form = newPullFilesStep1Form()
+		form = newPullFilesStep1Form(gitlabGW)
 	case cmdPushFolder:
 		form = newPushFolderForm()
 	}
@@ -232,8 +255,8 @@ type formModel struct {
 	form *huh.Form
 }
 
-func newFormModel(cmd string) formModel {
-	return formModel{cmd: cmd, form: buildForm(cmd)}
+func newFormModel(cmd string, gitlabGW gateway.GitLabGateway) formModel {
+	return formModel{cmd: cmd, form: buildForm(cmd, gitlabGW)}
 }
 
 func (m formModel) Init() tea.Cmd {
