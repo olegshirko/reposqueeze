@@ -300,9 +300,12 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 	return &project, nil
 }
 
-func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buffer) error {
+func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, ref string, writer *bytes.Buffer) error {
 	baseURL := g.baseURL()
 	apiURL := fmt.Sprintf("%s/projects/%d/repository/archive.zip", baseURL, projectID)
+	if ref != "" {
+		apiURL += "?sha=" + url.QueryEscape(ref)
+	}
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {

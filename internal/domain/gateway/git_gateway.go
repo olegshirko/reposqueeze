@@ -17,4 +17,5 @@ type GitGateway interface {
 	CleanWorkdir(repoPath string) error
 	Commit(repoPath, message string) error
 	AddAll(repoPath string) error
+	BranchExists(repoPath, branchName string) (bool, error)
 }

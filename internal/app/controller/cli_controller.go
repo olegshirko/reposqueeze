@@ -103,7 +103,8 @@ func (c *CLIController) handleCreateFromLocal(args []string) {
 func (c *CLIController) handleCreateFromGitlab(args []string) {
 	fs := flag.NewFlagSet("create-from-gitlab", flag.ExitOnError)
 	setFlagSetUsage(fs)
-	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
+	branchName := fs.String("branch-name", "", "Name of the target branch (existing or new orphan)")
+	ref := fs.String("ref", "", "GitLab branch or commit SHA to download archive from (default: repository default branch)")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
 
@@ -115,6 +116,7 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 	input := usecase.CreateOrphanBranchFromGitlabInput{
 		RepoPath:   fs.Args()[0],
 		BranchName: *branchName,
+		Ref:        *ref,
 	}
 
 	c.logger.Infof("Starting process for repository: %s", input.RepoPath)

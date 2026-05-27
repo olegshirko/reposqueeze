@@ -103,10 +103,10 @@ func TestGetFolderFiles(t *testing.T) {
 // --- mock GitLab gateway ---
 
 type mockGitLabGateway struct {
-	branches      []gateway.BranchInfo
-	commits       []gateway.CommitInfo
-	diffs         []gateway.DiffEntry
-	findProject   *entity.Project
+	branches       []gateway.BranchInfo
+	commits        []gateway.CommitInfo
+	diffs          []gateway.DiffEntry
+	findProject    *entity.Project
 	findProjectErr error
 }
 
@@ -123,7 +123,9 @@ func (m *mockGitLabGateway) DeleteProject(projectID int) error { return nil }
 func (m *mockGitLabGateway) CreateProject(name string) (*entity.Project, error) {
 	return nil, nil
 }
-func (m *mockGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buffer) error { return nil }
+func (m *mockGitLabGateway) DownloadRepoArchive(projectID int, ref string, writer *bytes.Buffer) error {
+	return nil
+}
 func (m *mockGitLabGateway) GetBranches(projectID int) ([]gateway.BranchInfo, error) {
 	return m.branches, nil
 }

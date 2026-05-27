@@ -68,6 +68,11 @@ func (m *MockGitGateway) Commit(repoPath, message string) error {
 	return args.Error(0)
 }
 
+func (m *MockGitGateway) BranchExists(repoPath, branchName string) (bool, error) {
+	args := m.Called(repoPath, branchName)
+	return args.Bool(0), args.Error(1)
+}
+
 // MockGitLabGateway is a mock for GitLabGateway
 type MockGitLabGateway struct {
 	mock.Mock
@@ -104,8 +109,8 @@ func (m *MockGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 	return args.Get(0).(*entity.Project), args.Error(1)
 }
 
-func (m *MockGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buffer) error {
-	args := m.Called(projectID, writer)
+func (m *MockGitLabGateway) DownloadRepoArchive(projectID int, ref string, writer *bytes.Buffer) error {
+	args := m.Called(projectID, ref, writer)
 	return args.Error(0)
 }
 

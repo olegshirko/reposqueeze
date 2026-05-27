@@ -41,7 +41,7 @@ func buildTestZip(t *testing.T, prefix string, files map[string]string) *bytes.B
 	return buf
 }
 
-func TestCreateOrphanBranchFromGitlabUseCase_Execute_Success(t *testing.T) {
+func TestCreateOrphanBranchFromGitlabUseCase_Execute_Success_NewBranch(t *testing.T) {
 	repoPath := filepath.Join(t.TempDir(), "my-project")
 	require.NoError(t, os.MkdirAll(repoPath, 0755))
 
@@ -53,6 +53,7 @@ func TestCreateOrphanBranchFromGitlabUseCase_Execute_Success(t *testing.T) {
 	input := CreateOrphanBranchFromGitlabInput{
 		RepoPath:   repoPath,
 		BranchName: "orphan-from-gitlab",
+		Ref:        "main",
 	}
 
 	project := &entity.Project{ID: 42, Name: "my-project"}
@@ -63,10 +64,11 @@ func TestCreateOrphanBranchFromGitlabUseCase_Execute_Success(t *testing.T) {
 	})
 
 	gitlabGateway.On("FindProjectByName", "my-project").Return(project, nil)
+	gitGateway.On("BranchExists", repoPath, "orphan-from-gitlab").Return(false, nil)
 	gitGateway.On("CreateEmptyOrphanBranch", mock.Anything, mock.Anything, mock.Anything, "").Return(nil)
 	gitGateway.On("CleanWorkdir", repoPath).Return(nil)
-	gitlabGateway.On("DownloadRepoArchive", 42, mock.Anything).Run(func(args mock.Arguments) {
-		buf := args.Get(1).(*bytes.Buffer)
+	gitlabGateway.On("DownloadRepoArchive", 42, "main", mock.Anything).Run(func(args mock.Arguments) {
+		buf := args.Get(2).(*bytes.Buffer)
 		_, err := buf.Write(zipBuf.Bytes())
 		require.NoError(t, err)
 	}).Return(nil)
@@ -78,13 +80,54 @@ func TestCreateOrphanBranchFromGitlabUseCase_Execute_Success(t *testing.T) {
 	assert.True(t, duration > 0)
 	assert.Equal(t, 2, filesCount)
 
-	// Проверяем что файлы действительно извлечены.
 	assert.FileExists(t, filepath.Join(repoPath, "README.md"))
 	assert.FileExists(t, filepath.Join(repoPath, "main.go"))
 
 	readme, _ := os.ReadFile(filepath.Join(repoPath, "README.md"))
 	assert.Equal(t, "# Hello", string(readme))
 
+	gitGateway.AssertExpectations(t)
+	gitlabGateway.AssertExpectations(t)
+}
+
+func TestCreateOrphanBranchFromGitlabUseCase_Execute_ExistingBranch(t *testing.T) {
+	repoPath := filepath.Join(t.TempDir(), "my-project")
+	require.NoError(t, os.MkdirAll(repoPath, 0755))
+
+	log := logger.NewLoggerWithWriter(logrus.New().Out)
+	gitGateway := new(MockGitGateway)
+	gitlabGateway := new(MockGitLabGateway)
+	useCase := NewCreateOrphanBranchFromGitlabUseCase(gitGateway, gitlabGateway, log)
+
+	input := CreateOrphanBranchFromGitlabInput{
+		RepoPath:   repoPath,
+		BranchName: "feature-x",
+		Ref:        "develop",
+	}
+
+	project := &entity.Project{ID: 42, Name: "my-project"}
+
+	zipBuf := buildTestZip(t, "my-project-a1b2c3d4/", map[string]string{
+		"README.md": "# Hello",
+	})
+
+	gitlabGateway.On("FindProjectByName", "my-project").Return(project, nil)
+	gitGateway.On("BranchExists", repoPath, "feature-x").Return(true, nil)
+	gitGateway.On("CheckoutBranch", repoPath, "feature-x").Return(nil)
+	gitlabGateway.On("DownloadRepoArchive", 42, "develop", mock.Anything).Run(func(args mock.Arguments) {
+		buf := args.Get(2).(*bytes.Buffer)
+		_, err := buf.Write(zipBuf.Bytes())
+		require.NoError(t, err)
+	}).Return(nil)
+	gitGateway.On("Commit", repoPath, "Add project files to orphan branch feature-x").Return(nil)
+
+	duration, filesCount, err := useCase.Execute(context.Background(), input)
+
+	require.NoError(t, err)
+	assert.True(t, duration > 0)
+	assert.Equal(t, 1, filesCount)
+
+	assert.FileExists(t, filepath.Join(repoPath, "README.md"))
 	gitGateway.AssertExpectations(t)
 	gitlabGateway.AssertExpectations(t)
 }
@@ -160,10 +203,11 @@ func TestCreateOrphanBranchFromGitlabUseCase_Execute_ArchiveWithoutRootPrefix(t 
 	})
 
 	gitlabGateway.On("FindProjectByName", "my-project").Return(project, nil)
+	gitGateway.On("BranchExists", repoPath, "orphan-from-gitlab").Return(false, nil)
 	gitGateway.On("CreateEmptyOrphanBranch", mock.Anything, mock.Anything, mock.Anything, "").Return(nil)
 	gitGateway.On("CleanWorkdir", repoPath).Return(nil)
-	gitlabGateway.On("DownloadRepoArchive", 42, mock.Anything).Run(func(args mock.Arguments) {
-		buf := args.Get(1).(*bytes.Buffer)
+	gitlabGateway.On("DownloadRepoArchive", 42, "", mock.Anything).Run(func(args mock.Arguments) {
+		buf := args.Get(2).(*bytes.Buffer)
 		_, err := buf.Write(zipBuf.Bytes())
 		require.NoError(t, err)
 	}).Return(nil)

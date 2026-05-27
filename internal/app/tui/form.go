@@ -4,8 +4,8 @@ import (
 	"os"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/huh"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
@@ -69,8 +69,8 @@ func newCreateFromLocalForm() *huh.Form {
 	)
 }
 
-func newCreateFromGitlabForm() *huh.Form {
-	var repoPath, branchName string
+func newCreateFromGitlabForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+	var repoPath, branchName, ref string
 
 	return huh.NewForm(
 		huh.NewGroup(
@@ -83,10 +83,23 @@ func newCreateFromGitlabForm() *huh.Form {
 				FileAllowed(false).
 				Value(&repoPath),
 
+			huh.NewSelect[string]().
+				Key("ref").
+				Title("GitLab source").
+				Description("Branch or tag on GitLab to download archive from").
+				OptionsFunc(func() []huh.Option[string] {
+					branches := getGitLabBranches(gitlabGW, repoPath)
+					if len(branches) == 0 {
+						return []huh.Option[string]{huh.NewOption("master", "master")}
+					}
+					return huh.NewOptions(branches...)
+				}, &repoPath).
+				Value(&ref),
+
 			huh.NewInput().
 				Key("branchName").
-				Title("Branch name").
-				Description("Name of the new local orphan branch").
+				Title("Target branch name").
+				Description("Name of the local branch to checkout or create as orphan").
 				Placeholder("new-branch").
 				Value(&branchName),
 		),
@@ -236,7 +249,7 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 	case cmdCreateFromLocal:
 		form = newCreateFromLocalForm()
 	case cmdCreateFromGitlab:
-		form = newCreateFromGitlabForm()
+		form = newCreateFromGitlabForm(gitlabGW)
 	case cmdPushFiles:
 		form = newPushFilesForm(gitlabGW)
 	case cmdPullFiles:

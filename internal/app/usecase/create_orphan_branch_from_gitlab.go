@@ -24,6 +24,7 @@ type CreateOrphanBranchFromGitlabUseCase struct {
 type CreateOrphanBranchFromGitlabInput struct {
 	RepoPath   string
 	BranchName string
+	Ref        string // GitLab branch or commit SHA to download archive from (empty = default branch)
 }
 
 func NewCreateOrphanBranchFromGitlabUseCase(
@@ -50,18 +51,30 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 		return 0, 0, nil
 	}
 
-	repo := &entity.Repository{Path: input.RepoPath}
-	branch := &entity.Branch{Name: input.BranchName}
-	if err := uc.GitGateway.CreateEmptyOrphanBranch(ctx, repo, branch, ""); err != nil {
+	exists, err := uc.GitGateway.BranchExists(input.RepoPath, input.BranchName)
+	if err != nil {
 		return 0, 0, err
 	}
 
-	if err = uc.GitGateway.CleanWorkdir(input.RepoPath); err != nil {
-		return 0, 0, err
+	if exists {
+		uc.logger.Infof("Branch %s exists, checking out", input.BranchName)
+		if err := uc.GitGateway.CheckoutBranch(input.RepoPath, input.BranchName); err != nil {
+			return 0, 0, err
+		}
+	} else {
+		uc.logger.Infof("Branch %s does not exist, creating orphan branch", input.BranchName)
+		repo := &entity.Repository{Path: input.RepoPath}
+		branch := &entity.Branch{Name: input.BranchName}
+		if err := uc.GitGateway.CreateEmptyOrphanBranch(ctx, repo, branch, ""); err != nil {
+			return 0, 0, err
+		}
+		if err = uc.GitGateway.CleanWorkdir(input.RepoPath); err != nil {
+			return 0, 0, err
+		}
 	}
 
 	buffer := new(bytes.Buffer)
-	if err = uc.GitLabGateway.DownloadRepoArchive(project.ID, buffer); err != nil {
+	if err = uc.GitLabGateway.DownloadRepoArchive(project.ID, input.Ref, buffer); err != nil {
 		return 0, 0, err
 	}
 

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/charmbracelet/huh"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
@@ -25,12 +25,12 @@ const (
 
 // appModel is the root Bubble Tea model that orchestrates screens.
 type appModel struct {
-	state    string
-	menu     menuModel
-	form     *formModel
-	runner   *runnerModel
-	width    int
-	height   int
+	state  string
+	menu   menuModel
+	form   *formModel
+	runner *runnerModel
+	width  int
+	height int
 
 	// infrastructure references needed to rebuild use-cases with a live logger
 	gitGateway    gateway.GitGateway
@@ -324,6 +324,7 @@ func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 			dur, count, err = uc.Execute(context.Background(), usecase.CreateOrphanBranchFromGitlabInput{
 				RepoPath:   f.GetString("repoPath"),
 				BranchName: f.GetString("branchName"),
+				Ref:        f.GetString("ref"),
 			})
 		case cmdPushFiles:
 			files := f.Get("files")

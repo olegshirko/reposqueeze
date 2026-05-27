@@ -149,3 +149,15 @@ func (g *OSExecGitGateway) Commit(repoPath, message string) error {
 
 	return nil
 }
+
+// BranchExists checks whether a local branch with the given name exists.
+func (g *OSExecGitGateway) BranchExists(repoPath, branchName string) (bool, error) {
+	cmd := exec.Command("git", "branch", "--list", branchName)
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Errorf("failed to list branch '%s': %w, output: %s", branchName, err, string(output))
+		return false, err
+	}
+	return strings.TrimSpace(string(output)) != "", nil
+}
