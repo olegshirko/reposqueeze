@@ -87,7 +87,10 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// global quit
 		if msg.Type == tea.KeyCtrlC {
 			if m.runner != nil && m.runner.logCh != nil {
-				close(m.runner.logCh)
+				func() {
+					defer func() { recover() }()
+					close(m.runner.logCh)
+				}()
 			}
 			return m, tea.Quit
 		}
@@ -197,6 +200,18 @@ func (m *appModel) handleFormSubmit(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 		repoPath := msg.form.GetString("repoPath")
 		branchName := msg.form.GetString("branchName")
 		commits := safeAtoi(msg.form.GetString("commits"), 1)
+		sinceCommit := msg.form.GetString("sinceCommit")
+
+		// If since-commit is set, skip file-selection and go straight to running.
+		if sinceCommit != "" {
+			m.pendingPullFiles = &usecase.PullFilesInput{
+				RepoPath:    repoPath,
+				BranchName:  branchName,
+				SinceCommit: sinceCommit,
+				GitAdd:      false,
+			}
+			return m.startPullFilesOperation(msg.form)
+		}
 
 		// Always go to the file-selection step so the user can pick files
 		// from the commit diffs on GitLab.

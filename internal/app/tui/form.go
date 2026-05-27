@@ -69,7 +69,7 @@ func newCreateFromLocalForm() *huh.Form {
 	)
 }
 
-func newCreateFromGitlabForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+func newCreateFromGitlabForm() *huh.Form {
 	var repoPath, branchName string
 
 	return huh.NewForm(
@@ -83,17 +83,11 @@ func newCreateFromGitlabForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 				FileAllowed(false).
 				Value(&repoPath),
 
-			huh.NewSelect[string]().
+			huh.NewInput().
 				Key("branchName").
 				Title("Branch name").
-				Description("Branch on GitLab").
-				OptionsFunc(func() []huh.Option[string] {
-					branches := getGitLabBranches(gitlabGW, repoPath)
-					if len(branches) == 0 {
-						return []huh.Option[string]{huh.NewOption("master", "master")}
-					}
-					return huh.NewOptions(branches...)
-				}, &repoPath).
+				Description("Name of the new local orphan branch").
+				Placeholder("new-branch").
 				Value(&branchName),
 		),
 	)
@@ -144,7 +138,7 @@ func newPushFilesForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 }
 
 func newPullFilesStep1Form(gitlabGW gateway.GitLabGateway) *huh.Form {
-	var repoPath, branchName, commits string
+	var repoPath, branchName, commits, sinceCommit string
 
 	return huh.NewForm(
 		huh.NewGroup(
@@ -173,9 +167,16 @@ func newPullFilesStep1Form(gitlabGW gateway.GitLabGateway) *huh.Form {
 			huh.NewInput().
 				Key("commits").
 				Title("Commits to inspect").
-				Description("Files will be loaded from these commits on GitLab").
+				Description("Files will be loaded from these commits on GitLab. Ignored if Since commit is set.").
 				Placeholder("1").
 				Value(&commits),
+
+			huh.NewInput().
+				Key("sinceCommit").
+				Title("Since commit (optional)").
+				Description("Pull all changes from this commit SHA up to HEAD. Overrides 'Commits to inspect'.").
+				Placeholder("abc1234").
+				Value(&sinceCommit),
 		),
 	)
 }
@@ -235,7 +236,7 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 	case cmdCreateFromLocal:
 		form = newCreateFromLocalForm()
 	case cmdCreateFromGitlab:
-		form = newCreateFromGitlabForm(gitlabGW)
+		form = newCreateFromGitlabForm()
 	case cmdPushFiles:
 		form = newPushFilesForm(gitlabGW)
 	case cmdPullFiles:

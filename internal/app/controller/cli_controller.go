@@ -165,6 +165,7 @@ func (c *CLIController) handlePullFiles(args []string) {
 	files := fs.String("files", "", "Comma-separated list of relative file paths, e.g. README.md,docs/guide.md (optional)")
 	commits := fs.Int("commits", 1, "How many latest commits to inspect for changed files when --files is omitted")
 	gitAdd := fs.Bool("git-add", false, "Stage all downloaded files in local git (git add)")
+	sinceCommit := fs.String("since-commit", "", "Pull all changes from this commit (SHA) up to HEAD of the branch")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
 
@@ -174,11 +175,12 @@ func (c *CLIController) handlePullFiles(args []string) {
 	}
 
 	input := usecase.PullFilesInput{
-		RepoPath:   fs.Args()[0],
-		BranchName: *branchName,
-		Files:      *files,
-		Commits:    *commits,
-		GitAdd:     *gitAdd,
+		RepoPath:    fs.Args()[0],
+		BranchName:  *branchName,
+		Files:       *files,
+		Commits:     *commits,
+		GitAdd:      *gitAdd,
+		SinceCommit: *sinceCommit,
 	}
 
 	c.logger.Infof("Pulling files from project derived from: %s", input.RepoPath)

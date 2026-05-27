@@ -21,11 +21,12 @@ type PullFilesUseCase struct {
 
 // PullFilesInput represents the input data for the pull-files use case.
 type PullFilesInput struct {
-	RepoPath   string
-	BranchName string
-	Files      string // comma-separated list; if empty, pulls files from commit diffs
-	Commits    int    // number of latest commits to process (default 1)
-	GitAdd     bool   // if true, runs git add + commit after downloading
+	RepoPath    string
+	BranchName  string
+	Files       string // comma-separated list; if empty, pulls files from commit diffs
+	Commits     int    // number of latest commits to process (default 1)
+	GitAdd      bool   // if true, runs git add + commit after downloading
+	SinceCommit string // if set, pulls all changes from this commit to HEAD via compare API
 }
 
 // NewPullFilesUseCase creates a new instance of PullFilesUseCase.
@@ -76,6 +77,38 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 			}
 			downloaded++
 		}
+	} else if input.SinceCommit != "" {
+		// Pull all changes from SinceCommit to HEAD via compare API.
+		uc.logger.Infof("Comparing %s..%s", input.SinceCommit, input.BranchName)
+
+		diffs, err := uc.GitLabGateway.GetCompareDiff(project.ID, input.SinceCommit, input.BranchName)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to get compare diff: %w", err)
+		}
+
+		for _, d := range diffs {
+			if d.DeletedFile {
+				localPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.NewPath))
+				if err := os.RemoveAll(localPath); err != nil {
+					return 0, 0, fmt.Errorf("failed to delete file %q: %w", d.NewPath, err)
+				}
+				uc.logger.Infof("Deleted: %s", d.NewPath)
+				continue
+			}
+
+			if d.RenamedFile {
+				oldLocalPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.OldPath))
+				if err := os.RemoveAll(oldLocalPath); err != nil {
+					return 0, 0, fmt.Errorf("failed to delete old file %q: %w", d.OldPath, err)
+				}
+				uc.logger.Infof("Deleted (rename): %s", d.OldPath)
+			}
+
+			if err := uc.downloadFile(project.ID, d.NewPath, input.BranchName, input.RepoPath); err != nil {
+				return 0, 0, err
+			}
+			downloaded++
+		}
 	} else {
 		// Resolve files from the latest N commits.
 		commits, err := uc.GitLabGateway.GetCommits(project.ID, input.BranchName, input.Commits)
@@ -106,6 +139,14 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 					}
 					uc.logger.Infof("Deleted: %s", d.NewPath)
 					continue
+				}
+
+				if d.RenamedFile {
+					oldLocalPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.OldPath))
+					if err := os.RemoveAll(oldLocalPath); err != nil {
+						return 0, 0, fmt.Errorf("failed to delete old file %q: %w", d.OldPath, err)
+					}
+					uc.logger.Infof("Deleted (rename): %s", d.OldPath)
 				}
 
 				if err := uc.downloadFile(project.ID, d.NewPath, commit.ID, input.RepoPath); err != nil {

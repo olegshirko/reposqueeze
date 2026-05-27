@@ -93,25 +93,32 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 			extractedFilePath := filepath.Join(input.RepoPath, relativePath)
 
 			if file.FileInfo().IsDir() {
-				os.MkdirAll(extractedFilePath, file.Mode())
+				if err := os.MkdirAll(extractedFilePath, 0755); err != nil {
+					return 0, 0, err
+				}
 			} else {
+				if err := os.MkdirAll(filepath.Dir(extractedFilePath), 0755); err != nil {
+					return 0, 0, err
+				}
+
 				zippedFile, err := file.Open()
 				if err != nil {
 					return 0, 0, err
 				}
-				defer zippedFile.Close()
 
 				outputFile, err := os.OpenFile(
 					extractedFilePath,
 					os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
-					file.Mode(),
+					0644,
 				)
 				if err != nil {
+					zippedFile.Close()
 					return 0, 0, err
 				}
-				defer outputFile.Close()
 
 				_, err = io.Copy(outputFile, zippedFile)
+				zippedFile.Close()
+				outputFile.Close()
 				if err != nil {
 					return 0, 0, err
 				}

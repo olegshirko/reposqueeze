@@ -18,9 +18,10 @@ import (
 
 // HTTPGitLabGateway is an implementation of the GitLabGateway that uses net/http.
 type HTTPGitLabGateway struct {
-	Client *http.Client
-	Token  string
-	logger logger.Logger
+	Client  *http.Client
+	Token   string
+	BaseURL string
+	logger  logger.Logger
 }
 
 // NewHTTPGitLabGateway creates a new instance of HTTPGitLabGateway.
@@ -30,6 +31,13 @@ func NewHTTPGitLabGateway(token string, log logger.Logger) *HTTPGitLabGateway {
 		Token:  token,
 		logger: log,
 	}
+}
+
+func (g *HTTPGitLabGateway) baseURL() string {
+	if g.BaseURL != "" {
+		return g.BaseURL
+	}
+	return "https://gitlab.com/api/v4"
 }
 
 // commitPayload is the structure for the GitLab Commits API request body.
@@ -61,7 +69,8 @@ func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 
 	// 2. Construct the API endpoint URL
 	// We need to URL-encode the project ID in case it contains slashes (e.g., "group/project")
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%s/repository/commits", url.PathEscape(projectID))
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%s/repository/commits", baseURL, url.PathEscape(projectID))
 
 	// 3. Create the HTTP request
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
@@ -112,7 +121,8 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 	}
 
 	// 2. Construct the API endpoint URL
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%s/repository/branches", url.PathEscape(projectID))
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%s/repository/branches", baseURL, url.PathEscape(projectID))
 
 	// 3. Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(payloadBytes))
@@ -145,7 +155,8 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 }
 
 func (g *HTTPGitLabGateway) FindProjectByName(projectName string) (*entity.Project, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects?owned=true&search=%s", url.QueryEscape(projectName))
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects?owned=true&search=%s", baseURL, url.QueryEscape(projectName))
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -196,7 +207,8 @@ func (g *HTTPGitLabGateway) FindProjectByName(projectName string) (*entity.Proje
 }
 
 func (g *HTTPGitLabGateway) DeleteProject(projectID int) error {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%s", strconv.Itoa(projectID))
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%s", baseURL, strconv.Itoa(projectID))
 
 	req, err := http.NewRequest("DELETE", apiURL, nil)
 	if err != nil {
@@ -253,7 +265,8 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 		return nil, err
 	}
 
-	apiURL := "https://gitlab.com/api/v4/projects"
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects", baseURL)
 
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
@@ -288,7 +301,8 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 }
 
 func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buffer) error {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/archive.zip", projectID)
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%d/repository/archive.zip", baseURL, projectID)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -322,7 +336,8 @@ func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, writer *bytes.Buf
 }
 
 func (g *HTTPGitLabGateway) GetBranches(projectID int) ([]gateway.BranchInfo, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/branches?per_page=100", projectID)
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%d/repository/branches?per_page=100", baseURL, projectID)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -356,8 +371,9 @@ func (g *HTTPGitLabGateway) GetBranches(projectID int) ([]gateway.BranchInfo, er
 }
 
 func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit int) ([]gateway.CommitInfo, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/commits?ref_name=%s&per_page=%d",
-		projectID, url.QueryEscape(branchName), limit)
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%d/repository/commits?ref_name=%s&per_page=%d",
+		baseURL, projectID, url.QueryEscape(branchName), limit)
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -391,8 +407,9 @@ func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit i
 }
 
 func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]gateway.DiffEntry, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/commits/%s/diff",
-		projectID, url.PathEscape(sha))
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%d/repository/commits/%s/diff",
+		baseURL, projectID, url.PathEscape(sha))
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -425,9 +442,48 @@ func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]gateway.
 	return diffs, nil
 }
 
+func (g *HTTPGitLabGateway) GetCompareDiff(projectID int, from, to string) ([]gateway.DiffEntry, error) {
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%d/repository/compare?from=%s&to=%s",
+		baseURL, projectID, url.QueryEscape(from), url.QueryEscape(to))
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		return nil, err
+	}
+
+	req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+	resp, err := g.Client.Do(req)
+	if err != nil {
+		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		err := fmt.Errorf("gitlab api returned non-200 status for compare diff: %s, body: %s", resp.Status, string(body))
+		g.logger.Error(err)
+		return nil, err
+	}
+
+	var result struct {
+		Diffs []gateway.DiffEntry `json:"diffs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		g.logger.Errorf("failed to decode compare diff: %w", err)
+		return nil, err
+	}
+
+	return result.Diffs, nil
+}
+
 func (g *HTTPGitLabGateway) GetRawFile(projectID int, filePath, ref string) ([]byte, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/files/%s/raw?ref=%s",
-		projectID, url.PathEscape(filePath), url.QueryEscape(ref))
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%d/repository/files/%s/raw?ref=%s",
+		baseURL, projectID, url.PathEscape(filePath), url.QueryEscape(ref))
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
@@ -455,8 +511,9 @@ func (g *HTTPGitLabGateway) GetRawFile(projectID int, filePath, ref string) ([]b
 }
 
 func (g *HTTPGitLabGateway) FileExists(projectID int, filePath, ref string) (bool, error) {
-	apiURL := fmt.Sprintf("https://gitlab.com/api/v4/projects/%d/repository/files/%s/raw?ref=%s",
-		projectID, url.PathEscape(filePath), url.QueryEscape(ref))
+	baseURL := g.baseURL()
+	apiURL := fmt.Sprintf("%s/projects/%d/repository/files/%s/raw?ref=%s",
+		baseURL, projectID, url.PathEscape(filePath), url.QueryEscape(ref))
 
 	req, err := http.NewRequest("HEAD", apiURL, nil)
 	if err != nil {
