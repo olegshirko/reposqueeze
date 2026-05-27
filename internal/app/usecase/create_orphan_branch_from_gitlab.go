@@ -25,6 +25,7 @@ type CreateOrphanBranchFromGitlabInput struct {
 	RepoPath   string
 	BranchName string
 	Ref        string // GitLab branch or commit SHA to download archive from (empty = default branch)
+	Commit     bool   // if true, auto-commits after unpacking
 }
 
 func NewCreateOrphanBranchFromGitlabUseCase(
@@ -139,12 +140,14 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 		}
 	}
 
-	commitMessage := "Add project files to orphan branch " + input.BranchName
-	startTime := time.Now()
-	if err = uc.GitGateway.Commit(input.RepoPath, commitMessage); err != nil {
-		return 0, 0, err
+	if input.Commit {
+		commitMessage := "Add project files to orphan branch " + input.BranchName
+		startTime := time.Now()
+		if err = uc.GitGateway.Commit(input.RepoPath, commitMessage); err != nil {
+			return 0, 0, err
+		}
+		return time.Since(startTime), filesCount, nil
 	}
-	duration := time.Since(startTime)
 
-	return duration, filesCount, nil
+	return 0, filesCount, nil
 }

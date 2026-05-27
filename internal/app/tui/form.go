@@ -71,6 +71,7 @@ func newCreateFromLocalForm() *huh.Form {
 
 func newCreateFromGitlabForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 	var repoPath, branchName, ref string
+	var commit bool
 
 	return huh.NewForm(
 		huh.NewGroup(
@@ -96,6 +97,12 @@ func newCreateFromGitlabForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 				Description("Name of the local branch to checkout or create as orphan").
 				Placeholder("new-branch").
 				Value(&branchName),
+
+			huh.NewConfirm().
+				Key("commit").
+				Title("Create commit automatically?").
+				Description("If yes, files will be committed after unpacking.").
+				Value(&commit),
 		),
 	)
 }

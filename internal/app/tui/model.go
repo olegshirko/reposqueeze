@@ -325,6 +325,7 @@ func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 				RepoPath:   f.GetString("repoPath"),
 				BranchName: f.GetString("branchName"),
 				Ref:        f.GetString("ref"),
+				Commit:     f.GetBool("commit"),
 			})
 		case cmdPushFiles:
 			files := f.Get("files")

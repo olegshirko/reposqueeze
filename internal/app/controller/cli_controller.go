@@ -105,6 +105,7 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "", "Name of the target branch (existing or new orphan)")
 	ref := fs.String("ref", "", "GitLab branch or commit SHA to download archive from (default: repository default branch)")
+	commit := fs.Bool("commit", false, "Auto-commit after unpacking")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
 
@@ -117,6 +118,7 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 		RepoPath:   fs.Args()[0],
 		BranchName: *branchName,
 		Ref:        *ref,
+		Commit:     *commit,
 	}
 
 	c.logger.Infof("Starting process for repository: %s", input.RepoPath)
