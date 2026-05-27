@@ -83,17 +83,11 @@ func newCreateFromGitlabForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 				FileAllowed(false).
 				Value(&repoPath),
 
-			huh.NewSelect[string]().
+			huh.NewInput().
 				Key("ref").
-				Title("GitLab source").
-				Description("Branch or tag on GitLab to download archive from").
-				OptionsFunc(func() []huh.Option[string] {
-					branches := getGitLabBranches(gitlabGW, repoPath)
-					if len(branches) == 0 {
-						return []huh.Option[string]{huh.NewOption("master", "master")}
-					}
-					return huh.NewOptions(branches...)
-				}, &repoPath).
+				Title("GitLab source (branch, tag or SHA)").
+				Description("Leave empty for default branch").
+				Placeholder("master").
 				Value(&ref),
 
 			huh.NewInput().
