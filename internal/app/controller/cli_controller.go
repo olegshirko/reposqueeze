@@ -19,6 +19,7 @@ type CLIController struct {
 	pullFilesUseCase        *usecase.PullFilesUseCase
 	pushFolderUseCase       *usecase.PushFolderUseCase
 	cherryPickCommitUseCase *usecase.CherryPickCommitUseCase
+	pushBranchUseCase       *usecase.PushBranchUseCase
 	gitlabGateway           gateway.GitLabGateway
 	logger                  logger.Logger
 }
@@ -31,6 +32,7 @@ func NewCLIController(
 	pullFilesUseCase *usecase.PullFilesUseCase,
 	pushFolderUseCase *usecase.PushFolderUseCase,
 	cherryPickCommitUseCase *usecase.CherryPickCommitUseCase,
+	pushBranchUseCase *usecase.PushBranchUseCase,
 	gitlabGateway gateway.GitLabGateway,
 	log logger.Logger,
 ) *CLIController {
@@ -41,6 +43,7 @@ func NewCLIController(
 		pullFilesUseCase:        pullFilesUseCase,
 		pushFolderUseCase:       pushFolderUseCase,
 		cherryPickCommitUseCase: cherryPickCommitUseCase,
+		pushBranchUseCase:       pushBranchUseCase,
 		gitlabGateway:           gitlabGateway,
 		logger:                  log,
 	}
@@ -69,6 +72,8 @@ func (c *CLIController) Run(args []string) {
 		c.handlePushFolder(remainingArgs)
 	case "cherry-pick-commit":
 		c.handleCherryPickCommit(remainingArgs)
+	case "push-branch":
+		c.handlePushBranch(remainingArgs)
 	default:
 		c.logger.Errorf("Unknown command: %s", command)
 		c.printUsage()
@@ -265,6 +270,38 @@ func (c *CLIController) handleCherryPickCommit(args []string) {
 	c.logger.Infof("Operation took %s.", duration)
 }
 
+func (c *CLIController) handlePushBranch(args []string) {
+	fs := flag.NewFlagSet("push-branch", flag.ExitOnError)
+	setFlagSetUsage(fs)
+	sourceBranch := fs.String("source-branch", "", "Local source branch to push files from")
+	branchName := fs.String("branch-name", "master", "Target branch on GitLab")
+	commitMessage := fs.String("message", "", "Custom commit message (default: Push files from <source-branch>)")
+
+	fs.Parse(reorderFlagsFirst(fs, args))
+
+	if len(fs.Args()) == 0 || *sourceBranch == "" {
+		fs.Usage()
+		return
+	}
+
+	input := usecase.PushBranchInput{
+		RepoPath:      fs.Args()[0],
+		SourceBranch:  *sourceBranch,
+		BranchName:    *branchName,
+		CommitMessage: *commitMessage,
+	}
+
+	c.logger.Infof("Pushing all files from local branch %s to GitLab branch %s", input.SourceBranch, input.BranchName)
+	duration, filesCount, err := c.pushBranchUseCase.Execute(context.Background(), input)
+	if err != nil {
+		c.logger.Errorf("Error: %v", err)
+		return
+	}
+
+	c.logger.Infof("Successfully pushed %d file(s) from branch '%s' to branch '%s'.", filesCount, input.SourceBranch, input.BranchName)
+	c.logger.Infof("Operation took %s.", duration)
+}
+
 // reorderFlagsFirst moves all flags (and their values) to the front of args,
 // so that positional arguments can appear before flags.
 // This makes commands like "pull-files ../repo --branch-name main" work
@@ -338,4 +375,6 @@ func (c *CLIController) printUsage() {
 	c.logger.Info("  push-folder         <path> [--project-name <name>] [--branch-name <name>]")
 	c.logger.Info("  cherry-pick-commit  <path> --commit <hash> [--branch-name <name>] [--message <msg>]")
 	c.logger.Info("                        Pushes a single local commit's file changes to an existing GitLab project.")
+	c.logger.Info("  push-branch         <path> --source-branch <name> [--branch-name <name>] [--message <msg>]")
+	c.logger.Info("                        Pushes all tracked files from a local branch to GitLab as one commit.")
 }

@@ -14,6 +14,7 @@ const (
 	cmdPullFiles        = "pull-files"
 	cmdPushFolder       = "push-folder"
 	cmdCherryPickCommit = "cherry-pick-commit"
+	cmdPushBranch       = "push-branch"
 )
 
 type menuItem struct {
@@ -39,6 +40,7 @@ func newMenuModel() menuModel {
 		menuItem{title: "Pull files", description: "Download files or commit diffs from GitLab branch", cmd: cmdPullFiles},
 		menuItem{title: "Push folder", description: "Upload arbitrary local folder to a new GitLab project", cmd: cmdPushFolder},
 		menuItem{title: "Cherry-pick commit", description: "Push a single local commit's file changes to an existing GitLab branch", cmd: cmdCherryPickCommit},
+		menuItem{title: "Push branch", description: "Push all file changes from a local branch (diff against base) as one commit", cmd: cmdPushBranch},
 	}
 
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)

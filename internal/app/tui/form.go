@@ -287,6 +287,56 @@ func newCherryPickCommitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 	)
 }
 
+func newPushBranchForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+	var repoPath, sourceBranch, branchName, commitMessage string
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewFilePicker().
+				Key("repoPath").
+				Title("Repository path").
+				Description("Choose a local Git repository (h/←/backspace: up, enter: select)").
+				CurrentDirectory(homeDir()).
+				DirAllowed(true).
+				FileAllowed(false).
+				Value(&repoPath),
+
+			huh.NewSelect[string]().
+				Key("sourceBranch").
+				Title("Source branch").
+				Description("Local branch to take files from").
+				OptionsFunc(func() []huh.Option[string] {
+					branches := getGitBranches(repoPath)
+					if len(branches) == 0 {
+						return []huh.Option[string]{huh.NewOption("master", "master")}
+					}
+					return huh.NewOptions(branches...)
+				}, &repoPath).
+				Value(&sourceBranch),
+
+			huh.NewSelect[string]().
+				Key("branchName").
+				Title("Target branch").
+				Description("Target branch on GitLab").
+				OptionsFunc(func() []huh.Option[string] {
+					branches := getGitLabBranches(gitlabGW, repoPath)
+					if len(branches) == 0 {
+						return []huh.Option[string]{huh.NewOption("master", "master")}
+					}
+					return huh.NewOptions(branches...)
+				}, &repoPath).
+				Value(&branchName),
+
+			huh.NewInput().
+				Key("commitMessage").
+				Title("Commit message (optional)").
+				Description("Custom commit message; leave empty for default").
+				Placeholder("").
+				Value(&commitMessage),
+		),
+	)
+}
+
 // buildForm returns a huh.Form for the given command.
 func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 	var form *huh.Form
@@ -303,6 +353,8 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 		form = newPushFolderForm()
 	case cmdCherryPickCommit:
 		form = newCherryPickCommitForm(gitlabGW)
+	case cmdPushBranch:
+		form = newPushBranchForm(gitlabGW)
 	}
 	if form != nil {
 		form.WithKeyMap(formKeyMap())

@@ -354,6 +354,14 @@ func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 				BranchName:    f.GetString("branchName"),
 				CommitMessage: f.GetString("commitMessage"),
 			})
+		case cmdPushBranch:
+			uc := usecase.NewPushBranchUseCase(gitGW, gitlabGW, tuiLog)
+			dur, count, err = uc.Execute(context.Background(), usecase.PushBranchInput{
+				RepoPath:      f.GetString("repoPath"),
+				SourceBranch:  f.GetString("sourceBranch"),
+				BranchName:    f.GetString("branchName"),
+				CommitMessage: f.GetString("commitMessage"),
+			})
 		}
 
 		resultCh <- runResultMsg{duration: dur.String(), count: count, err: err}

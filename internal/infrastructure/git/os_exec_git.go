@@ -221,3 +221,57 @@ func (g *OSExecGitGateway) GetFileContentFromCommit(repoPath, commitHash, filePa
 	}
 	return output, nil
 }
+
+// GetBranchDiffFiles returns the list of changed files between two branches.
+func (g *OSExecGitGateway) GetBranchDiffFiles(repoPath, baseBranch, sourceBranch string) ([]gateway.CommitFileInfo, error) {
+	cmd := exec.Command("git", "-C", repoPath, "diff", "--name-status", baseBranch+".."+sourceBranch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Errorf("failed to get diff between %s and %s: %w, output: %s", baseBranch, sourceBranch, err, string(output))
+		return nil, err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var result []gateway.CommitFileInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		status := parts[0]
+		path := parts[1]
+		oldPath := ""
+		if strings.HasPrefix(status, "R") && len(parts) >= 3 {
+			oldPath = parts[1]
+			path = parts[2]
+		}
+		result = append(result, gateway.CommitFileInfo{
+			Status:  status,
+			Path:    path,
+			OldPath: oldPath,
+		})
+	}
+	return result, nil
+}
+
+// ListFilesInBranch returns all tracked file paths in the given branch.
+func (g *OSExecGitGateway) ListFilesInBranch(repoPath, branchName string) ([]string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "ls-tree", "-r", "--name-only", branchName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Errorf("failed to list files in branch %s: %w, output: %s", branchName, err, string(output))
+		return nil, err
+	}
+	files := strings.Split(string(output), "\n")
+	var result []string
+	for _, file := range files {
+		if file != "" {
+			result = append(result, file)
+		}
+	}
+	return result, nil
+}

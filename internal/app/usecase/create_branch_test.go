@@ -88,6 +88,16 @@ func (m *MockGitGateway) GetFileContentFromCommit(repoPath, commitHash, filePath
 	return args.Get(0).([]byte), args.Error(1)
 }
 
+func (m *MockGitGateway) GetBranchDiffFiles(repoPath, baseBranch, sourceBranch string) ([]gateway.CommitFileInfo, error) {
+	args := m.Called(repoPath, baseBranch, sourceBranch)
+	return args.Get(0).([]gateway.CommitFileInfo), args.Error(1)
+}
+
+func (m *MockGitGateway) ListFilesInBranch(repoPath, branchName string) ([]string, error) {
+	args := m.Called(repoPath, branchName)
+	return args.Get(0).([]string), args.Error(1)
+}
+
 // MockGitLabGateway is a mock for GitLabGateway
 type MockGitLabGateway struct {
 	mock.Mock
