@@ -346,6 +346,14 @@ func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 				ProjectName: f.GetString("projectName"),
 				BranchName:  f.GetString("branchName"),
 			})
+		case cmdCherryPickCommit:
+			uc := usecase.NewCherryPickCommitUseCase(gitGW, gitlabGW, tuiLog)
+			dur, count, err = uc.Execute(context.Background(), usecase.CherryPickCommitInput{
+				RepoPath:      f.GetString("repoPath"),
+				CommitHash:    f.GetString("commitHash"),
+				BranchName:    f.GetString("branchName"),
+				CommitMessage: f.GetString("commitMessage"),
+			})
 		}
 
 		resultCh <- runResultMsg{duration: dur.String(), count: count, err: err}

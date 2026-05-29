@@ -243,6 +243,50 @@ func newPushFolderForm() *huh.Form {
 	)
 }
 
+func newCherryPickCommitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+	var repoPath, commitHash, branchName, commitMessage string
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewFilePicker().
+				Key("repoPath").
+				Title("Repository path").
+				Description("Choose a local Git repository (h/←/backspace: up, enter: select)").
+				CurrentDirectory(homeDir()).
+				DirAllowed(true).
+				FileAllowed(false).
+				Value(&repoPath),
+
+			huh.NewInput().
+				Key("commitHash").
+				Title("Commit hash").
+				Description("Local commit hash to cherry-pick").
+				Placeholder("abc1234").
+				Value(&commitHash),
+
+			huh.NewSelect[string]().
+				Key("branchName").
+				Title("Branch name").
+				Description("Target branch on GitLab").
+				OptionsFunc(func() []huh.Option[string] {
+					branches := getGitLabBranches(gitlabGW, repoPath)
+					if len(branches) == 0 {
+						return []huh.Option[string]{huh.NewOption("master", "master")}
+					}
+					return huh.NewOptions(branches...)
+				}, &repoPath).
+				Value(&branchName),
+
+			huh.NewInput().
+				Key("commitMessage").
+				Title("Commit message (optional)").
+				Description("Custom commit message; leave empty to use the original").
+				Placeholder("").
+				Value(&commitMessage),
+		),
+	)
+}
+
 // buildForm returns a huh.Form for the given command.
 func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 	var form *huh.Form
@@ -257,6 +301,8 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 		form = newPullFilesStep1Form(gitlabGW)
 	case cmdPushFolder:
 		form = newPushFolderForm()
+	case cmdCherryPickCommit:
+		form = newCherryPickCommitForm(gitlabGW)
 	}
 	if form != nil {
 		form.WithKeyMap(formKeyMap())
