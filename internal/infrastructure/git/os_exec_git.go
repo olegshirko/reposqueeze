@@ -222,9 +222,10 @@ func (g *OSExecGitGateway) GetFileContentFromCommit(repoPath, commitHash, filePa
 	return output, nil
 }
 
-// GetBranchDiffFiles returns the list of changed files between two branches.
+// GetBranchDiffFiles returns the list of changed files between two refs,
+// excluding the vendor directory.
 func (g *OSExecGitGateway) GetBranchDiffFiles(repoPath, baseBranch, sourceBranch string) ([]gateway.CommitFileInfo, error) {
-	cmd := exec.Command("git", "-C", repoPath, "diff", "--name-status", baseBranch+".."+sourceBranch)
+	cmd := exec.Command("git", "-C", repoPath, "diff", "--name-status", baseBranch+".."+sourceBranch, "--", ":!vendor")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		g.logger.Errorf("failed to get diff between %s and %s: %w, output: %s", baseBranch, sourceBranch, err, string(output))
@@ -256,6 +257,17 @@ func (g *OSExecGitGateway) GetBranchDiffFiles(repoPath, baseBranch, sourceBranch
 		})
 	}
 	return result, nil
+}
+
+// GetMergeBase returns the common ancestor commit of two branches.
+func (g *OSExecGitGateway) GetMergeBase(repoPath, branch1, branch2 string) (string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "merge-base", branch1, branch2)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Errorf("failed to get merge-base of %s and %s: %w, output: %s", branch1, branch2, err, string(output))
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 // ListFilesInBranch returns all tracked file paths in the given branch.

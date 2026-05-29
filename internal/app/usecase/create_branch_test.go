@@ -98,6 +98,11 @@ func (m *MockGitGateway) ListFilesInBranch(repoPath, branchName string) ([]strin
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *MockGitGateway) GetMergeBase(repoPath, branch1, branch2 string) (string, error) {
+	args := m.Called(repoPath, branch1, branch2)
+	return args.String(0), args.Error(1)
+}
+
 // MockGitLabGateway is a mock for GitLabGateway
 type MockGitLabGateway struct {
 	mock.Mock

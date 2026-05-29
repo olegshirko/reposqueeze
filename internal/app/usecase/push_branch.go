@@ -11,8 +11,9 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
-// PushBranchUseCase pushes all tracked files from a local branch
-// as a single new commit to an existing GitLab project branch.
+// PushBranchUseCase pushes only the files changed in a local branch
+// (diff from merge-base to branch tip, excluding vendor) as a single
+// new commit to an existing GitLab project branch.
 type PushBranchUseCase struct {
 	gitGateway    gateway.GitGateway
 	gitLabGateway gateway.GitLabGateway
@@ -22,7 +23,7 @@ type PushBranchUseCase struct {
 // PushBranchInput represents the input data for the push-branch use case.
 type PushBranchInput struct {
 	RepoPath      string
-	SourceBranch  string // local branch to take files from
+	SourceBranch  string // local branch to take changes from
 	BranchName    string // target branch on GitLab
 	CommitMessage string // optional
 }
@@ -51,43 +52,89 @@ func (uc *PushBranchUseCase) Execute(ctx context.Context, input PushBranchInput)
 	// Step 2: Resolve commit message.
 	commitMessage := input.CommitMessage
 	if commitMessage == "" {
-		commitMessage = fmt.Sprintf("Push files from branch %s", input.SourceBranch)
+		commitMessage = fmt.Sprintf("Push changes from branch %s", input.SourceBranch)
 	}
 
-	// Step 3: Get all tracked files from the local source branch.
-	files, err := uc.gitGateway.ListFilesInBranch(input.RepoPath, input.SourceBranch)
+	// Step 3: Find merge-base with master or main.
+	mergeBase, err := uc.gitGateway.GetMergeBase(input.RepoPath, "master", input.SourceBranch)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to list files in branch: %w", err)
+		mergeBase, err = uc.gitGateway.GetMergeBase(input.RepoPath, "main", input.SourceBranch)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to find merge-base for branch %q against master/main: %w", input.SourceBranch, err)
+		}
 	}
 
-	// Step 4: Build commit actions.
+	// Step 4: Get changed files from merge-base to source branch (vendor excluded by git).
+	files, err := uc.gitGateway.GetBranchDiffFiles(input.RepoPath, mergeBase, input.SourceBranch)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get diff files: %w", err)
+	}
+
+	// Step 5: Build commit actions.
 	var actions []gateway.CommitAction
-	for _, fp := range files {
-		content, err := uc.gitGateway.GetFileContentFromCommit(input.RepoPath, input.SourceBranch, fp)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to get file content for %q: %w", fp, err)
-		}
+	for _, f := range files {
+		gitPath := filepath.ToSlash(f.Path)
 
-		gitPath := filepath.ToSlash(fp)
-		exists, _ := uc.gitLabGateway.FileExists(project.ID, gitPath, input.BranchName)
-		action := "create"
-		if exists {
-			action = "update"
-		}
+		switch {
+		case f.Status == "A" || f.Status == "M":
+			content, err := uc.gitGateway.GetFileContentFromCommit(input.RepoPath, input.SourceBranch, f.Path)
+			if err != nil {
+				return 0, 0, fmt.Errorf("failed to get file content for %q: %w", f.Path, err)
+			}
 
-		actions = append(actions, gateway.CommitAction{
-			Action:   action,
-			FilePath: gitPath,
-			Content:  string(content),
-			Encoding: "text",
-		})
+			exists, _ := uc.gitLabGateway.FileExists(project.ID, gitPath, input.BranchName)
+			action := "create"
+			if exists {
+				action = "update"
+			}
+
+			actions = append(actions, gateway.CommitAction{
+				Action:   action,
+				FilePath: gitPath,
+				Content:  string(content),
+				Encoding: "text",
+			})
+
+		case f.Status == "D":
+			actions = append(actions, gateway.CommitAction{
+				Action:   "delete",
+				FilePath: gitPath,
+			})
+
+		case strings.HasPrefix(f.Status, "R"):
+			oldPath := filepath.ToSlash(f.OldPath)
+			content, err := uc.gitGateway.GetFileContentFromCommit(input.RepoPath, input.SourceBranch, f.Path)
+			if err != nil {
+				return 0, 0, fmt.Errorf("failed to get file content for %q: %w", f.Path, err)
+			}
+
+			actions = append(actions, gateway.CommitAction{
+				Action:   "delete",
+				FilePath: oldPath,
+			})
+
+			exists, _ := uc.gitLabGateway.FileExists(project.ID, gitPath, input.BranchName)
+			action := "create"
+			if exists {
+				action = "update"
+			}
+			actions = append(actions, gateway.CommitAction{
+				Action:   action,
+				FilePath: gitPath,
+				Content:  string(content),
+				Encoding: "text",
+			})
+
+		default:
+			return 0, 0, fmt.Errorf("unsupported file change status %q for file %q", f.Status, f.Path)
+		}
 	}
 
 	if len(actions) == 0 {
-		return 0, 0, fmt.Errorf("no files found in branch %s", input.SourceBranch)
+		return 0, 0, fmt.Errorf("no file changes found in branch %s (vendor excluded)", input.SourceBranch)
 	}
 
-	// Step 5: Commit via GitLab API.
+	// Step 6: Commit via GitLab API.
 	startTime := time.Now()
 	err = uc.gitLabGateway.CommitFilesViaAPI(
 		fmt.Sprintf("%d", project.ID),

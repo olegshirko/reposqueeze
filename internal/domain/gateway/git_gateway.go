@@ -30,4 +30,5 @@ type GitGateway interface {
 	GetFileContentFromCommit(repoPath, commitHash, filePath string) ([]byte, error)
 	GetBranchDiffFiles(repoPath, baseBranch, sourceBranch string) ([]CommitFileInfo, error)
 	ListFilesInBranch(repoPath, branchName string) ([]string, error)
+	GetMergeBase(repoPath, branch1, branch2 string) (string, error)
 }
