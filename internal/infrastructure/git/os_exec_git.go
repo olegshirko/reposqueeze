@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/entity"
+	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
@@ -160,4 +161,63 @@ func (g *OSExecGitGateway) BranchExists(repoPath, branchName string) (bool, erro
 		return false, err
 	}
 	return strings.TrimSpace(string(output)) != "", nil
+}
+
+// GetCommitMessage returns the full message of a commit.
+func (g *OSExecGitGateway) GetCommitMessage(repoPath, commitHash string) (string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "show", "-s", "--format=%B", commitHash)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Errorf("failed to get commit message for %s: %w, output: %s", commitHash, err, string(output))
+		return "", err
+	}
+	return string(output), nil
+}
+
+// GetCommitFiles returns the list of changed files in a commit with their status.
+func (g *OSExecGitGateway) GetCommitFiles(repoPath, commitHash string) ([]gateway.CommitFileInfo, error) {
+	cmd := exec.Command("git", "-C", repoPath, "diff-tree", "--no-commit-id", "--name-status", "-r", commitHash)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Errorf("failed to get commit files for %s: %w, output: %s", commitHash, err, string(output))
+		return nil, err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	var result []gateway.CommitFileInfo
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		status := parts[0]
+		path := parts[1]
+		oldPath := ""
+		// Handle renames: "R100\told\tnew"
+		if strings.HasPrefix(status, "R") && len(parts) >= 3 {
+			oldPath = parts[1]
+			path = parts[2]
+		}
+		result = append(result, gateway.CommitFileInfo{
+			Status:  status,
+			Path:    path,
+			OldPath: oldPath,
+		})
+	}
+	return result, nil
+}
+
+// GetFileContentFromCommit returns the content of a file at a specific commit.
+func (g *OSExecGitGateway) GetFileContentFromCommit(repoPath, commitHash, filePath string) ([]byte, error) {
+	cmd := exec.Command("git", "-C", repoPath, "show", commitHash+":"+filePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Errorf("failed to get file content %s from commit %s: %w, output: %s", filePath, commitHash, err, string(output))
+		return nil, err
+	}
+	return output, nil
 }

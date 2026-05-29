@@ -73,6 +73,21 @@ func (m *MockGitGateway) BranchExists(repoPath, branchName string) (bool, error)
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockGitGateway) GetCommitMessage(repoPath, commitHash string) (string, error) {
+	args := m.Called(repoPath, commitHash)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockGitGateway) GetCommitFiles(repoPath, commitHash string) ([]gateway.CommitFileInfo, error) {
+	args := m.Called(repoPath, commitHash)
+	return args.Get(0).([]gateway.CommitFileInfo), args.Error(1)
+}
+
+func (m *MockGitGateway) GetFileContentFromCommit(repoPath, commitHash, filePath string) ([]byte, error) {
+	args := m.Called(repoPath, commitHash, filePath)
+	return args.Get(0).([]byte), args.Error(1)
+}
+
 // MockGitLabGateway is a mock for GitLabGateway
 type MockGitLabGateway struct {
 	mock.Mock
