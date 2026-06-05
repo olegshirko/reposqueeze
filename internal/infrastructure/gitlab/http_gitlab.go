@@ -411,76 +411,104 @@ func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit i
 
 func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]gateway.DiffEntry, error) {
 	baseURL := g.baseURL()
-	apiURL := fmt.Sprintf("%s/projects/%d/repository/commits/%s/diff",
-		baseURL, projectID, url.PathEscape(sha))
+	var allDiffs []gateway.DiffEntry
+	page := 1
 
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
-		return nil, err
+	for {
+		apiURL := fmt.Sprintf("%s/projects/%d/repository/commits/%s/diff?per_page=100&page=%d",
+			baseURL, projectID, url.PathEscape(sha), page)
+
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			g.logger.Errorf("failed to create gitlab api request: %w", err)
+			return nil, err
+		}
+
+		req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+		resp, err := g.Client.Do(req)
+		if err != nil {
+			g.logger.Errorf("failed to send request to gitlab api: %w", err)
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+			err := fmt.Errorf("gitlab api returned non-200 status for commit diff: %s, body: %s", resp.Status, string(body))
+			g.logger.Error(err)
+			return nil, err
+		}
+
+		var diffs []gateway.DiffEntry
+		if err := json.NewDecoder(resp.Body).Decode(&diffs); err != nil {
+			resp.Body.Close()
+			g.logger.Errorf("failed to decode commit diff: %w", err)
+			return nil, err
+		}
+		resp.Body.Close()
+
+		allDiffs = append(allDiffs, diffs...)
+
+		if len(diffs) < 100 {
+			break
+		}
+		page++
 	}
 
-	req.Header.Set("PRIVATE-TOKEN", g.Token)
-
-	resp, err := g.Client.Do(req)
-	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
-		err := fmt.Errorf("gitlab api returned non-200 status for commit diff: %s, body: %s", resp.Status, string(body))
-		g.logger.Error(err)
-		return nil, err
-	}
-
-	var diffs []gateway.DiffEntry
-	if err := json.NewDecoder(resp.Body).Decode(&diffs); err != nil {
-		g.logger.Errorf("failed to decode commit diff: %w", err)
-		return nil, err
-	}
-
-	return diffs, nil
+	return allDiffs, nil
 }
 
 func (g *HTTPGitLabGateway) GetCompareDiff(projectID int, from, to string) ([]gateway.DiffEntry, error) {
 	baseURL := g.baseURL()
-	apiURL := fmt.Sprintf("%s/projects/%d/repository/compare?from=%s&to=%s",
-		baseURL, projectID, url.QueryEscape(from), url.QueryEscape(to))
+	var allDiffs []gateway.DiffEntry
+	page := 1
 
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
-		return nil, err
+	for {
+		apiURL := fmt.Sprintf("%s/projects/%d/repository/compare?from=%s&to=%s&per_page=100&page=%d",
+			baseURL, projectID, url.QueryEscape(from), url.QueryEscape(to), page)
+
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			g.logger.Errorf("failed to create gitlab api request: %w", err)
+			return nil, err
+		}
+
+		req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+		resp, err := g.Client.Do(req)
+		if err != nil {
+			g.logger.Errorf("failed to send request to gitlab api: %w", err)
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+			err := fmt.Errorf("gitlab api returned non-200 status for compare diff: %s, body: %s", resp.Status, string(body))
+			g.logger.Error(err)
+			return nil, err
+		}
+
+		var result struct {
+			Diffs []gateway.DiffEntry `json:"diffs"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			g.logger.Errorf("failed to decode compare diff: %w", err)
+			return nil, err
+		}
+		resp.Body.Close()
+
+		allDiffs = append(allDiffs, result.Diffs...)
+
+		if len(result.Diffs) < 100 {
+			break
+		}
+		page++
 	}
 
-	req.Header.Set("PRIVATE-TOKEN", g.Token)
-
-	resp, err := g.Client.Do(req)
-	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
-		err := fmt.Errorf("gitlab api returned non-200 status for compare diff: %s, body: %s", resp.Status, string(body))
-		g.logger.Error(err)
-		return nil, err
-	}
-
-	var result struct {
-		Diffs []gateway.DiffEntry `json:"diffs"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		g.logger.Errorf("failed to decode compare diff: %w", err)
-		return nil, err
-	}
-
-	return result.Diffs, nil
+	return allDiffs, nil
 }
 
 func (g *HTTPGitLabGateway) GetRawFile(projectID int, filePath, ref string) ([]byte, error) {
