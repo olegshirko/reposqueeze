@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
@@ -38,7 +37,7 @@ func NewPushFolderUseCase(gitLabGateway gateway.GitLabGateway, log logger.Logger
 func (uc *PushFolderUseCase) Execute(ctx context.Context, input PushFolderInput) (time.Duration, int, error) {
 	projectName := input.ProjectName
 	if projectName == "" {
-		projectName = filepath.Base(strings.TrimSuffix(input.FolderPath, string(os.PathSeparator)))
+		projectName = ProjectNameFromPath(input.FolderPath)
 	}
 
 	// Step 1: Find and delete the project if it exists.

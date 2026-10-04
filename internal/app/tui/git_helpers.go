@@ -2,12 +2,18 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/huh"
+
+	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
+	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
+	"github.com/olegshirko/reposqueeze/internal/infrastructure/state"
+	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
 // getGitBranches returns a sorted list of local branch names for the given repo.
@@ -67,7 +73,7 @@ func safeAtoi(s string, def int) int {
 
 // getGitLabBranches returns a sorted list of branch names from GitLab.
 func getGitLabBranches(gw gateway.GitLabGateway, repoPath string) []string {
-	projectName := filepath.Base(strings.TrimSuffix(repoPath, ".git"))
+	projectName := usecase.ProjectNameFromPath(repoPath)
 	project, err := gw.FindProjectByName(projectName)
 	if err != nil || project == nil {
 		return nil
@@ -87,7 +93,7 @@ func getGitLabBranches(gw gateway.GitLabGateway, repoPath string) []string {
 // getFilesFromGitLabCommits returns a deduplicated sorted list of files that
 // were touched in the last N commits of the given GitLab branch.
 func getFilesFromGitLabCommits(gw gateway.GitLabGateway, repoPath, branchName string, commits int) ([]string, error) {
-	projectName := filepath.Base(strings.TrimSuffix(repoPath, ".git"))
+	projectName := usecase.ProjectNameFromPath(repoPath)
 	project, err := gw.FindProjectByName(projectName)
 	if err != nil {
 		return nil, err
@@ -118,4 +124,65 @@ func getFilesFromGitLabCommits(gw gateway.GitLabGateway, repoPath, branchName st
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// getGitCommits returns "sha subject" options for the latest commits of ref.
+func getGitCommits(repoPath, ref string, limit int) []huh.Option[string] {
+	if ref == "" {
+		ref = "HEAD"
+	}
+	cmd := exec.Command("git", "log", "-n", fmt.Sprint(limit), "--format=%H%x09%h %s", ref)
+	cmd.Dir = repoPath
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var opts []huh.Option[string]
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		sha, label, ok := strings.Cut(line, "\t")
+		if ok {
+			opts = append(opts, huh.NewOption(label, sha))
+		}
+	}
+	return opts
+}
+
+// getGitLabCommits returns "sha subject" options for the latest commits of a GitLab branch.
+func getGitLabCommits(gw gateway.GitLabGateway, repoPath, branch string, limit int) []huh.Option[string] {
+	projectName := usecase.ProjectNameFromPath(repoPath)
+	project, err := gw.FindProjectByName(projectName)
+	if err != nil || project == nil || branch == "" {
+		return nil
+	}
+	commits, err := gw.GetCommits(project.ID, branch, limit)
+	if err != nil {
+		return nil
+	}
+	var opts []huh.Option[string]
+	for _, c := range commits {
+		subject, _, _ := strings.Cut(c.Message, "\n")
+		short := c.ID
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		opts = append(opts, huh.NewOption(short+" "+subject, c.ID))
+	}
+	return opts
+}
+
+// getMirrorNames lists sync mirrors configured for the repository.
+func getMirrorNames(repoPath string) []string {
+	if repoPath == "" {
+		return nil
+	}
+	gw := git.NewOSExecGitGateway(logger.NewLoggerWithWriter(io.Discard))
+	set, err := state.NewFileStore(gw).Load(repoPath)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, m := range set.Mirrors {
+		names = append(names, m.Name)
+	}
+	return names
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
@@ -337,6 +338,144 @@ func newPushBranchForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 	)
 }
 
+func repoPicker(key string) *huh.FilePicker {
+	return huh.NewFilePicker().
+		Key(key).
+		Title("Repository path").
+		Description("Choose a local Git repository (h/←/backspace: up, enter: select)").
+		CurrentDirectory(homeDir()).
+		DirAllowed(true).
+		FileAllowed(false)
+}
+
+func mirrorSelect(repoPath *string, value *string) *huh.Select[string] {
+	return huh.NewSelect[string]().
+		Key("mirror").
+		Title("Mirror").
+		Description("Local branch <-> GitLab branch pair (create one with Sync init)").
+		OptionsFunc(func() []huh.Option[string] {
+			names := getMirrorNames(*repoPath)
+			if len(names) == 0 {
+				return []huh.Option[string]{huh.NewOption("(no mirrors: run Sync init first)", "")}
+			}
+			return huh.NewOptions(names...)
+		}, repoPath).
+		Value(value)
+}
+
+func newSyncForm() *huh.Form {
+	var repoPath, mirror, strategy string
+	var autostash bool
+	strategy = "merge"
+
+	return huh.NewForm(
+		huh.NewGroup(
+			repoPicker("repoPath").Value(&repoPath),
+			mirrorSelect(&repoPath, &mirror),
+			huh.NewSelect[string]().
+				Key("strategy").
+				Title("Files changed on both sides").
+				Options(
+					huh.NewOption("merge: 3-way merge, conflicts left for manual resolution", "merge"),
+					huh.NewOption("local: keep the local version", "local"),
+					huh.NewOption("remote: take the GitLab version", "remote"),
+					huh.NewOption("abort: stop and show the list", "abort"),
+				).
+				Value(&strategy),
+			huh.NewConfirm().
+				Key("autostash").
+				Title("Stash uncommitted changes during sync?").
+				Value(&autostash),
+		),
+	)
+}
+
+func newSyncStatusForm() *huh.Form {
+	var repoPath, mirror string
+	return huh.NewForm(
+		huh.NewGroup(
+			repoPicker("repoPath").Value(&repoPath),
+			mirrorSelect(&repoPath, &mirror),
+		),
+	)
+}
+
+func newSyncLogForm() *huh.Form {
+	var repoPath string
+	return huh.NewForm(
+		huh.NewGroup(
+			repoPicker("repoPath").Value(&repoPath),
+		),
+	)
+}
+
+func newSyncConfirmForm() *huh.Form {
+	run := true
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Key("confirm").
+				Title("Run this sync?").
+				Affirmative("Sync").
+				Negative("Cancel").
+				Value(&run),
+		),
+	)
+}
+
+func newSyncInitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+	var repoPath, localBranch, remoteBranch, localSHA, remoteSHA, name string
+	var force bool
+
+	return huh.NewForm(
+		huh.NewGroup(
+			repoPicker("repoPath").Value(&repoPath),
+			huh.NewSelect[string]().
+				Key("localBranch").
+				Title("Local branch").
+				OptionsFunc(func() []huh.Option[string] {
+					return huh.NewOptions(getGitBranches(repoPath)...)
+				}, &repoPath).
+				Value(&localBranch),
+			huh.NewSelect[string]().
+				Key("remoteBranch").
+				Title("GitLab branch").
+				OptionsFunc(func() []huh.Option[string] {
+					return huh.NewOptions(getGitLabBranches(gitlabGW, repoPath)...)
+				}, &repoPath).
+				Value(&remoteBranch),
+		),
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Key("localSHA").
+				Title("Local commit mirroring starts from").
+				Description("Its content must match the GitLab commit chosen below").
+				OptionsFunc(func() []huh.Option[string] {
+					return getGitCommits(repoPath, localBranch, 50)
+				}, &localBranch).
+				Height(12).
+				Value(&localSHA),
+			huh.NewSelect[string]().
+				Key("remoteSHA").
+				Title("Matching GitLab commit").
+				OptionsFunc(func() []huh.Option[string] {
+					return getGitLabCommits(gitlabGW, repoPath, remoteBranch, 50)
+				}, &remoteBranch).
+				Height(12).
+				Value(&remoteSHA),
+			huh.NewInput().
+				Key("name").
+				Title("Mirror name (optional)").
+				Placeholder("<local>-><project>:<remote>").
+				Value(&name),
+			huh.NewConfirm().
+				Key("force").
+				Title("Overwrite an existing mirror with the same name?").
+				Value(&force),
+		),
+	)
+}
+
 // buildForm returns a huh.Form for the given command.
 func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 	var form *huh.Form
@@ -355,6 +494,16 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 		form = newCherryPickCommitForm(gitlabGW)
 	case cmdPushBranch:
 		form = newPushBranchForm(gitlabGW)
+	case cmdSync:
+		form = newSyncForm()
+	case cmdSyncStatus:
+		form = newSyncStatusForm()
+	case cmdSyncInit:
+		form = newSyncInitForm(gitlabGW)
+	case cmdSyncLog:
+		form = newSyncLogForm()
+	case cmdSyncConfirm:
+		form = newSyncConfirmForm()
 	}
 	if form != nil {
 		form.WithKeyMap(formKeyMap())
@@ -364,8 +513,9 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 
 // formModel wraps a huh.Form so it implements our local Update contract.
 type formModel struct {
-	cmd  string
-	form *huh.Form
+	cmd    string
+	form   *huh.Form
+	header string // optional text shown above the form
 }
 
 func newFormModel(cmd string, gitlabGW gateway.GitLabGateway) formModel {
@@ -385,5 +535,8 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 }
 
 func (m formModel) View() string {
-	return m.form.View()
+	if m.header == "" {
+		return m.form.View()
+	}
+	return lipgloss.NewStyle().Margin(1, 2).Render(m.header) + "\n" + m.form.View()
 }

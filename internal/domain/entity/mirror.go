@@ -14,10 +14,11 @@ type SyncPoint struct {
 
 // Journal entry directions.
 const (
-	SyncInit = "init"
-	SyncPull = "pull"
-	SyncPush = "push"
-	SyncBoth = "both"
+	SyncInit     = "init"
+	SyncPull     = "pull"
+	SyncPush     = "push"
+	SyncBoth     = "both"
+	SyncConflict = "conflict" // nothing transferred, only conflicts left to resolve
 )
 
 // JournalEntry records one synchronisation. LocalSHA/RemoteSHA are the

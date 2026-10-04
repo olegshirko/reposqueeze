@@ -535,6 +535,8 @@ func direction(r *SyncResult) string {
 		return entity.SyncBoth
 	case r.Pushed > 0:
 		return entity.SyncPush
+	case !pulled && len(r.Conflicts) > 0:
+		return entity.SyncConflict
 	default:
 		return entity.SyncPull
 	}

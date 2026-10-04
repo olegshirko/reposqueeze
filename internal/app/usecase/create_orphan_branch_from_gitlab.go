@@ -42,7 +42,7 @@ func NewCreateOrphanBranchFromGitlabUseCase(
 }
 
 func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, input CreateOrphanBranchFromGitlabInput) (time.Duration, int, error) {
-	projectName := projectNameFromPath(input.RepoPath)
+	projectName := ProjectNameFromPath(input.RepoPath)
 	uc.logger.Info(projectName)
 	project, err := uc.GitLabGateway.FindProjectByName(projectName)
 	if err != nil {

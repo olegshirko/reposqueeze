@@ -4,8 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 	"github.com/olegshirko/reposqueeze/internal/domain/entity"
@@ -128,34 +126,8 @@ func (c *CLIController) handleSyncLog(args []string) error {
 }
 
 func printMirrorLog(m entity.Mirror) {
-	fmt.Printf("Mirror %s  (local %s  <->  %s/%s, project id %d)\n", m.Name, m.LocalBranch, m.ProjectName, m.RemoteBranch, m.ProjectID)
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "  WHEN\tDIR\tLOCAL\tGITLAB\tPULLED\tPUSHED\tNOTES")
-	fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t\t\torigin\n", m.Origin.At.Local().Format("2006-01-02 15:04"), entity.SyncInit, shortSHA(m.Origin.LocalSHA), shortSHA(m.Origin.RemoteSHA))
-	for _, j := range m.Journal {
-		notes := ""
-		if len(j.Merged) > 0 {
-			notes += fmt.Sprintf("merged %d ", len(j.Merged))
-		}
-		if len(j.Conflicts) > 0 {
-			notes += fmt.Sprintf("conflicts: %v ", j.Conflicts)
-		}
-		if j.RemoteMoved {
-			notes += "gitlab moved during sync"
-		}
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%d\t%d\t%s\n", j.At.Local().Format("2006-01-02 15:04"), j.Direction,
-			shortSHA(j.LocalSHA), shortSHA(j.RemoteSHA), j.Pulled, j.Pushed, notes)
-	}
-	w.Flush()
-	if m.PendingMerge != nil {
-		fmt.Printf("  pending conflicts: %v\n", m.PendingMerge.Files)
+	for _, line := range usecase.MirrorLogLines(m) {
+		fmt.Println(line)
 	}
 	fmt.Println()
-}
-
-func shortSHA(sha string) string {
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
 }

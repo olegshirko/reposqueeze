@@ -9,15 +9,20 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
 
-// projectNameFromPath derives the GitLab project name from a local repository path.
-func projectNameFromPath(repoPath string) string {
+// ProjectNameFromPath derives the GitLab project name from a local repository
+// path: the folder name, without a ".git" suffix. Relative paths such as "."
+// are resolved first.
+func ProjectNameFromPath(repoPath string) string {
+	if abs, err := filepath.Abs(repoPath); err == nil {
+		repoPath = abs
+	}
 	return filepath.Base(strings.TrimSuffix(filepath.Clean(repoPath), ".git"))
 }
 
 // resolveProject finds the GitLab project that matches the local repository folder name.
 // A missing project is reported as an error.
 func resolveProject(gw gateway.GitLabGateway, repoPath string) (*entity.Project, error) {
-	name := projectNameFromPath(repoPath)
+	name := ProjectNameFromPath(repoPath)
 	project, err := gw.FindProjectByName(name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find project: %w", err)

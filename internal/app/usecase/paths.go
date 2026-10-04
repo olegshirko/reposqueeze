@@ -13,7 +13,10 @@ func safeJoin(root, rel string) (string, error) {
 	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") {
 		return "", fmt.Errorf("unsafe path %q", rel)
 	}
-	cleanRoot := filepath.Clean(root)
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
 	joined := filepath.Join(cleanRoot, filepath.FromSlash(rel))
 	if joined != cleanRoot && !strings.HasPrefix(joined, cleanRoot+string(filepath.Separator)) {
 		return "", fmt.Errorf("path %q escapes repository root", rel)

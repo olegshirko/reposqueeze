@@ -13,6 +13,7 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/gitlab"
+	"github.com/olegshirko/reposqueeze/internal/infrastructure/state"
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
@@ -22,7 +23,14 @@ const (
 	stateFileSelect = "file-select"
 	stateRunning    = "running"
 	stateResult     = "result"
+	statePlanning   = "planning"
 )
+
+// syncPlanMsg delivers the plan computed for the sync wizard.
+type syncPlanMsg struct {
+	plan *usecase.SyncPlan
+	err  error
+}
 
 // appModel is the root Bubble Tea model that orchestrates screens.
 type appModel struct {
@@ -42,6 +50,9 @@ type appModel struct {
 
 	// pull-files wizard state
 	pendingPullFiles *usecase.PullFilesInput
+
+	// sync wizard state
+	pendingSync *usecase.SyncInput
 
 	// runSeq numbers runs so events from abandoned runs are ignored.
 	runSeq int
@@ -104,6 +115,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// esc goes back from form to menu, unless a file picker is focused
 		// (in which case esc navigates up inside the picker).
+		if msg.Type == tea.KeyEsc && m.state == statePlanning {
+			return m, func() tea.Msg { return backMsg{} }
+		}
 		if msg.Type == tea.KeyEsc && (m.state == stateForm || m.state == stateFileSelect) {
 			if m.form != nil {
 				if _, ok := m.form.form.GetFocusedField().(*huh.FilePicker); ok {
@@ -123,12 +137,16 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case formSubmittedMsg:
 		return m.handleFormSubmit(msg)
 
+	case syncPlanMsg:
+		return m.handleSyncPlan(msg)
+
 	case backMsg:
 		switch m.state {
-		case stateForm, stateFileSelect:
+		case stateForm, stateFileSelect, statePlanning:
 			m.state = stateMenu
 			m.form = nil
 			m.pendingPullFiles = nil
+			m.pendingSync = nil
 			return m, nil
 		case stateRunning, stateResult:
 			if m.runner != nil {
@@ -196,11 +214,18 @@ func (m *appModel) View() string {
 		if m.runner != nil {
 			return m.runner.View()
 		}
+	case statePlanning:
+		return lipgloss.NewStyle().Margin(1, 2).Render("Comparing local branch with GitLab...\n\n" + helpStyle.Render("esc: cancel"))
 	}
 	return lipgloss.NewStyle().Margin(1, 2).Render("Loading...")
 }
 
 func (m *appModel) handleFormSubmit(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
+	switch msg.cmd {
+	case cmdSync, cmdSyncStatus, cmdSyncInit, cmdSyncLog, cmdSyncConfirm:
+		return m.handleSyncForm(msg)
+	}
+
 	// Special wizard for pull-files when no explicit file list is given.
 	if msg.cmd == cmdPullFiles && m.state == stateForm {
 		repoPath := msg.form.GetString("repoPath")
@@ -282,9 +307,14 @@ func (m *appModel) startPullFilesOperation(f *huh.Form) (tea.Model, tea.Cmd) {
 
 // deps are gateways bound to the TUI logger of a single run.
 type deps struct {
-	log    *TUILogger
-	git    gateway.GitGateway
-	gitlab gateway.GitLabGateway
+	log     *TUILogger
+	git     gateway.GitGateway
+	syncGit gateway.SyncGit
+	gitlab  gateway.GitLabGateway
+}
+
+func (d deps) syncUseCase() *usecase.SyncUseCase {
+	return usecase.NewSyncUseCase(d.syncGit, d.gitlab, state.NewFileStore(d.syncGit), d.log)
 }
 
 // runFunc executes one operation and reports duration and processed file count.
@@ -301,11 +331,13 @@ func (m *appModel) startRun(fn runFunc) (tea.Model, tea.Cmd) {
 // startRunWithSummary is like startRun but lets fn build the whole result.
 func (m *appModel) startRunWithSummary(fn func(ctx context.Context, d deps) runResultMsg) (tea.Model, tea.Cmd) {
 	tuiLog := NewTUILogger()
+	// rebuild gateways so their logs also appear in the TUI
+	gitGW := git.NewOSExecGitGateway(tuiLog)
 	d := deps{
-		log: tuiLog,
-		// rebuild gateways so their logs also appear in the TUI
-		git:    git.NewOSExecGitGateway(tuiLog),
-		gitlab: gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL),
+		log:     tuiLog,
+		git:     gitGW,
+		syncGit: gitGW,
+		gitlab:  gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 

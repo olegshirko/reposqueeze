@@ -43,7 +43,7 @@ func NewCreateAndPushOrphanBranchUseCase(
 // Execute runs the use case.
 func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input Input) (time.Duration, int, error) {
 	// Step 1: Find and delete the project if it exists.
-	projectName := projectNameFromPath(input.RepoPath)
+	projectName := ProjectNameFromPath(input.RepoPath)
 	uc.logger.Info(projectName)
 	project, err := uc.GitLabGateway.FindProjectByName(projectName)
 	if err != nil {

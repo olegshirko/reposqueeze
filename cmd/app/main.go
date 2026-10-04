@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -33,9 +34,13 @@ func run(args []string) int {
 	gitGateway := git.NewOSExecGitGateway(log)
 	gitlabGateway := gitlab.NewHTTPGitLabGateway(gitlabToken, log).WithBaseURL(gitlabBaseURL)
 
-	// 2. TUI mode
+	// 2. TUI mode. Stdout belongs to the UI, so the gateways used for form
+	// lookups log nowhere; each operation streams its own log into the UI.
 	if len(args) > 0 && args[0] == "tui" {
-		m := tui.NewApp(gitGateway, gitlabGateway, gitlabToken, gitlabBaseURL, log)
+		quiet := logger.NewLoggerWithWriter(io.Discard)
+		m := tui.NewApp(git.NewOSExecGitGateway(quiet),
+			gitlab.NewHTTPGitLabGateway(gitlabToken, quiet).WithBaseURL(gitlabBaseURL),
+			gitlabToken, gitlabBaseURL, quiet)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			log.Errorf("TUI error: %v", err)

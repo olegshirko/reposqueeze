@@ -15,6 +15,13 @@ const (
 	cmdPushFolder       = "push-folder"
 	cmdCherryPickCommit = "cherry-pick-commit"
 	cmdPushBranch       = "push-branch"
+	cmdSync             = "sync"
+	cmdSyncStatus       = "status"
+	cmdSyncInit         = "sync-init"
+	cmdSyncLog          = "sync-log"
+
+	// cmdSyncConfirm is the second step of the sync wizard (not in the menu).
+	cmdSyncConfirm = "sync-confirm"
 )
 
 type menuItem struct {
@@ -34,6 +41,10 @@ type menuModel struct {
 
 func newMenuModel() menuModel {
 	items := []list.Item{
+		menuItem{title: "Sync", description: "Two-way sync of a local branch with its GitLab mirror (pull, push, 3-way merge)", cmd: cmdSync},
+		menuItem{title: "Sync status", description: "Show what sync would pull, push and merge", cmd: cmdSyncStatus},
+		menuItem{title: "Sync init", description: "Set which local commit/branch matches which GitLab commit/branch", cmd: cmdSyncInit},
+		menuItem{title: "Sync log", description: "Journal of matching local <-> GitLab commits", cmd: cmdSyncLog},
 		menuItem{title: "Create from local", description: "Create orphan branch from local repo and push to GitLab", cmd: cmdCreateFromLocal},
 		menuItem{title: "Create from GitLab", description: "Download GitLab repo archive into local orphan branch", cmd: cmdCreateFromGitlab},
 		menuItem{title: "Push files", description: "Commit specific files to an existing GitLab branch", cmd: cmdPushFiles},

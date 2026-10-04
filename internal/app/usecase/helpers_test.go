@@ -25,12 +25,29 @@ func TestSafeJoin(t *testing.T) {
 		_, err := safeJoin(root, bad)
 		assert.Error(t, err, "path %q must be rejected", bad)
 	}
+
+	// A relative root such as "." works too.
+	wd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(root))
+	defer os.Chdir(wd)
+	p, err = safeJoin(".", "docs/new.md")
+	require.NoError(t, err)
+	assert.Equal(t, "new.md", filepath.Base(p))
+	_, err = safeJoin(".", "../x")
+	assert.Error(t, err)
 }
 
 func TestProjectNameFromPath(t *testing.T) {
-	assert.Equal(t, "repo", projectNameFromPath("/x/repo"))
-	assert.Equal(t, "repo", projectNameFromPath("/x/repo/"))
-	assert.Equal(t, "repo", projectNameFromPath("/x/repo.git"))
+	assert.Equal(t, "repo", ProjectNameFromPath("/x/repo"))
+	assert.Equal(t, "repo", ProjectNameFromPath("/x/repo/"))
+	assert.Equal(t, "repo", ProjectNameFromPath("/x/repo.git"))
+
+	dir := filepath.Join(t.TempDir(), "my-project")
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	wd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(wd)
+	assert.Equal(t, "my-project", ProjectNameFromPath("."))
 }
 
 func TestBuildCommitActions(t *testing.T) {
