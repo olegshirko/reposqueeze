@@ -65,6 +65,9 @@ func (l *logrusLogger) Debugf(format string, args ...interface{}) {
 	l.logger.Debugf(format, args...)
 }
 
+// minMaskedTokenLen is the shortest secret that maskingWriter will redact.
+const minMaskedTokenLen = 8
+
 // maskingWriter wraps an io.Writer and replaces sensitive tokens with ***.
 type maskingWriter struct {
 	writer io.Writer
@@ -72,7 +75,8 @@ type maskingWriter struct {
 }
 
 func (m *maskingWriter) Write(p []byte) (int, error) {
-	if m.token == "" {
+	// Very short values are not real tokens; masking them would mangle ordinary text.
+	if len(m.token) < minMaskedTokenLen {
 		return m.writer.Write(p)
 	}
 	sanitized := strings.ReplaceAll(string(p), m.token, "***")

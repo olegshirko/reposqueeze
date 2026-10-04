@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/entity"
@@ -44,7 +43,7 @@ func NewCreateAndPushOrphanBranchUseCase(
 // Execute runs the use case.
 func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input Input) (time.Duration, int, error) {
 	// Step 1: Find and delete the project if it exists.
-	projectName := filepath.Base(strings.TrimSuffix(input.RepoPath, ".git"))
+	projectName := projectNameFromPath(input.RepoPath)
 	uc.logger.Info(projectName)
 	project, err := uc.GitLabGateway.FindProjectByName(projectName)
 	if err != nil {
@@ -133,7 +132,7 @@ func (uc *CreateAndPushOrphanBranchUseCase) Execute(ctx context.Context, input I
 	// Step 5: Commit the files via the GitLab API. This will be the second commit.
 	commitMessage := "Add project files to orphan branch " + input.BranchName
 	startTime := time.Now()
-	err = uc.GitLabGateway.CommitFilesViaAPI(
+	_, err = uc.GitLabGateway.CommitFilesViaAPI(
 		strconv.Itoa(project.ID),
 		input.BranchName,
 		commitMessage,

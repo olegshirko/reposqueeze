@@ -21,12 +21,6 @@ func TestToCommaSeparated(t *testing.T) {
 	assert.Equal(t, "", toCommaSeparated([]string{}))
 }
 
-func TestFromCommaSeparated(t *testing.T) {
-	assert.Equal(t, []string{"a", "b", "c"}, fromCommaSeparated("a, b, c"))
-	assert.Equal(t, []string{"a"}, fromCommaSeparated("a"))
-	assert.Empty(t, fromCommaSeparated(""))
-}
-
 func TestSafeAtoi(t *testing.T) {
 	assert.Equal(t, 42, safeAtoi("42", 10))
 	assert.Equal(t, 10, safeAtoi("", 10))
@@ -84,22 +78,6 @@ func TestGetGitFiles(t *testing.T) {
 	assert.Equal(t, []string{"a.txt"}, files)
 }
 
-func TestGetFolderFiles(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "keep.txt"), []byte("x"), 0644))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "nested.txt"), []byte("y"), 0644))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("z"), 0644))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "vendor"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendor", "v.go"), []byte("v"), 0644))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "node_modules"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "node_modules", "n.js"), []byte("n"), 0644))
-
-	files := getFolderFiles(dir)
-	assert.Equal(t, []string{"keep.txt", "sub/nested.txt"}, files)
-}
-
 // --- mock GitLab gateway ---
 
 type mockGitLabGateway struct {
@@ -110,8 +88,11 @@ type mockGitLabGateway struct {
 	findProjectErr error
 }
 
-func (m *mockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) error {
-	return nil
+func (m *mockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (string, error) {
+	return "", nil
+}
+func (m *mockGitLabGateway) GetBranchHead(projectID int, branchName string) (string, error) {
+	return "", nil
 }
 func (m *mockGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, branchName, refSHA string) error {
 	return nil
@@ -161,32 +142,6 @@ func TestGetGitLabBranches_ProjectNotFound(t *testing.T) {
 	gw := &mockGitLabGateway{findProject: nil}
 	branches := getGitLabBranches(gw, "/tmp/my-project")
 	assert.Nil(t, branches)
-}
-
-func TestGetGitLabDefaultBranch(t *testing.T) {
-	gw := &mockGitLabGateway{
-		findProject: &entity.Project{ID: 7, Name: "my-project"},
-		branches: []gateway.BranchInfo{
-			{Name: "develop"},
-			{Name: "main", Default: true},
-		},
-	}
-	assert.Equal(t, "main", getGitLabDefaultBranch(gw, "/tmp/my-project"))
-}
-
-func TestGetGitLabDefaultBranch_NoDefault(t *testing.T) {
-	gw := &mockGitLabGateway{
-		findProject: &entity.Project{ID: 7, Name: "my-project"},
-		branches: []gateway.BranchInfo{
-			{Name: "develop"},
-		},
-	}
-	assert.Equal(t, "develop", getGitLabDefaultBranch(gw, "/tmp/my-project"))
-}
-
-func TestGetGitLabDefaultBranch_ProjectNotFound(t *testing.T) {
-	gw := &mockGitLabGateway{findProject: nil}
-	assert.Equal(t, "master", getGitLabDefaultBranch(gw, "/tmp/my-project"))
 }
 
 func TestGetFilesFromGitLabCommits(t *testing.T) {

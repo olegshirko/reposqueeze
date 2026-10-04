@@ -36,6 +36,7 @@ type appModel struct {
 	gitGateway    gateway.GitGateway
 	gitlabGateway gateway.GitLabGateway
 	gitlabToken   string
+	gitlabBaseURL string
 	baseLogger    logger.Logger
 
 	// pull-files wizard state
@@ -47,6 +48,7 @@ func NewApp(
 	gitGateway gateway.GitGateway,
 	gitlabGateway gateway.GitLabGateway,
 	gitlabToken string,
+	gitlabBaseURL string,
 	baseLogger logger.Logger,
 ) tea.Model {
 	return &appModel{
@@ -55,6 +57,7 @@ func NewApp(
 		gitGateway:    gitGateway,
 		gitlabGateway: gitlabGateway,
 		gitlabToken:   gitlabToken,
+		gitlabBaseURL: gitlabBaseURL,
 		baseLogger:    baseLogger,
 	}
 }
@@ -269,7 +272,7 @@ func (m *appModel) startPullFilesOperation(f *huh.Form) (tea.Model, tea.Cmd) {
 
 	tuiLog := NewTUILogger(logCh)
 	gitGW := git.NewOSExecGitGateway(tuiLog)
-	gitlabGW := gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog)
+	gitlabGW := gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL)
 
 	// Capture the input locally so the goroutine doesn't race with the nil
 	// assignment below.
@@ -302,7 +305,7 @@ func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 	tuiLog := NewTUILogger(logCh)
 	// rebuild gateways so their logs also appear in the TUI
 	gitGW := git.NewOSExecGitGateway(tuiLog)
-	gitlabGW := gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog)
+	gitlabGW := gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL)
 
 	f := msg.form
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -45,13 +44,9 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 	}
 
 	// Step 1: Find the project by name.
-	projectName := filepath.Base(strings.TrimSuffix(input.RepoPath, ".git"))
-	project, err := uc.GitLabGateway.FindProjectByName(projectName)
+	project, err := resolveProject(uc.GitLabGateway, input.RepoPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to find project: %w", err)
-	}
-	if project == nil {
-		return 0, 0, fmt.Errorf("project %q not found on GitLab", projectName)
+		return 0, 0, err
 	}
 
 	// Ensure target directory exists.
@@ -86,29 +81,11 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 			return 0, 0, fmt.Errorf("failed to get compare diff: %w", err)
 		}
 
-		for _, d := range diffs {
-			if d.DeletedFile {
-				localPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.NewPath))
-				if err := os.RemoveAll(localPath); err != nil {
-					return 0, 0, fmt.Errorf("failed to delete file %q: %w", d.NewPath, err)
-				}
-				uc.logger.Infof("Deleted: %s", d.NewPath)
-				continue
-			}
-
-			if d.RenamedFile {
-				oldLocalPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.OldPath))
-				if err := os.RemoveAll(oldLocalPath); err != nil {
-					return 0, 0, fmt.Errorf("failed to delete old file %q: %w", d.OldPath, err)
-				}
-				uc.logger.Infof("Deleted (rename): %s", d.OldPath)
-			}
-
-			if err := uc.downloadFile(project.ID, d.NewPath, input.BranchName, input.RepoPath); err != nil {
-				return 0, 0, err
-			}
-			downloaded++
+		n, err := applyRemoteDiff(uc.GitLabGateway, uc.logger, project.ID, input.BranchName, input.RepoPath, diffs)
+		if err != nil {
+			return 0, 0, err
 		}
+		downloaded += n
 	} else {
 		// Resolve files from the latest N commits.
 		commits, err := uc.GitLabGateway.GetCommits(project.ID, input.BranchName, input.Commits)
@@ -131,29 +108,11 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 				return 0, 0, fmt.Errorf("failed to get diff for commit %s: %w", commit.ID, err)
 			}
 
-			for _, d := range diffs {
-				if d.DeletedFile {
-					localPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.NewPath))
-					if err := os.RemoveAll(localPath); err != nil {
-						return 0, 0, fmt.Errorf("failed to delete file %q: %w", d.NewPath, err)
-					}
-					uc.logger.Infof("Deleted: %s", d.NewPath)
-					continue
-				}
-
-				if d.RenamedFile {
-					oldLocalPath := filepath.Join(input.RepoPath, filepath.FromSlash(d.OldPath))
-					if err := os.RemoveAll(oldLocalPath); err != nil {
-						return 0, 0, fmt.Errorf("failed to delete old file %q: %w", d.OldPath, err)
-					}
-					uc.logger.Infof("Deleted (rename): %s", d.OldPath)
-				}
-
-				if err := uc.downloadFile(project.ID, d.NewPath, commit.ID, input.RepoPath); err != nil {
-					return 0, 0, err
-				}
-				downloaded++
+			n, err := applyRemoteDiff(uc.GitLabGateway, uc.logger, project.ID, commit.ID, input.RepoPath, diffs)
+			if err != nil {
+				return 0, 0, err
 			}
+			downloaded += n
 		}
 	}
 
@@ -169,20 +128,5 @@ func (uc *PullFilesUseCase) Execute(ctx context.Context, input PullFilesInput) (
 }
 
 func (uc *PullFilesUseCase) downloadFile(projectID int, filePath, ref, repoPath string) error {
-	content, err := uc.GitLabGateway.GetRawFile(projectID, filePath, ref)
-	if err != nil {
-		return fmt.Errorf("failed to download file %q: %w", filePath, err)
-	}
-
-	localPath := filepath.Join(repoPath, filepath.FromSlash(filePath))
-	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
-		return fmt.Errorf("failed to create directory for %q: %w", filePath, err)
-	}
-
-	if err := os.WriteFile(localPath, content, 0o644); err != nil {
-		return fmt.Errorf("failed to write file %q: %w", filePath, err)
-	}
-
-	uc.logger.Infof("Pulled: %s -> %s", filePath, localPath)
-	return nil
+	return downloadRemoteFile(uc.GitLabGateway, uc.logger, projectID, filePath, ref, repoPath)
 }

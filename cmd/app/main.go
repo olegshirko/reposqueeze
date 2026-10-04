@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,26 +14,33 @@ import (
 )
 
 func main() {
-	// 0. Create logger
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
+	// 0. Read configuration
 	gitlabToken := os.Getenv("GITLAB_TOKEN")
-	if gitlabToken == "" {
-		panic("GITLAB_TOKEN environment variable not set")
+	gitlabBaseURL := os.Getenv("GITLAB_BASE_URL")
+	if gitlabToken == "" && !isHelp(args) {
+		fmt.Fprintln(os.Stderr, "GITLAB_TOKEN environment variable is not set.")
+		fmt.Fprintln(os.Stderr, "Create a personal access token with the 'api' scope and run: export GITLAB_TOKEN=glpat-...")
+		return controller.ExitUsage
 	}
 	log := logger.NewLoggerWithMasking(gitlabToken)
 
 	// 1. Create instances of the gateway implementations (Frameworks & Drivers)
 	gitGateway := git.NewOSExecGitGateway(log)
-	gitlabGateway := gitlab.NewHTTPGitLabGateway(gitlabToken, log)
+	gitlabGateway := gitlab.NewHTTPGitLabGateway(gitlabToken, log).WithBaseURL(gitlabBaseURL)
 
 	// 2. TUI mode
-	if len(os.Args) > 1 && os.Args[1] == "tui" {
-		m := tui.NewApp(gitGateway, gitlabGateway, gitlabToken, log)
+	if len(args) > 0 && args[0] == "tui" {
+		m := tui.NewApp(gitGateway, gitlabGateway, gitlabToken, gitlabBaseURL, log)
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			log.Errorf("TUI error: %v", err)
-			os.Exit(1)
+			return controller.ExitError
 		}
-		return
+		return controller.ExitOK
 	}
 
 	// 3. Create an instance of the use case, injecting the gateways (Use Cases)
@@ -48,6 +56,21 @@ func main() {
 	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, cherryPickCommitUseCase, pushBranchUseCase, gitlabGateway, log)
 
 	// 5. Run the controller with command-line arguments
-	// os.Args[1:] excludes the program name
-	cliController.Run(os.Args[1:])
+	return cliController.Run(args)
+}
+
+func isHelp(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	switch args[0] {
+	case "help", "-h", "--help":
+		return true
+	}
+	for _, a := range args[1:] {
+		if a == "-h" || a == "--help" || a == "-help" {
+			return true
+		}
+	}
+	return false
 }

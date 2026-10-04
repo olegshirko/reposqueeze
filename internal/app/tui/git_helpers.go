@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -51,64 +50,9 @@ func getGitFiles(repoPath string) []string {
 	return result
 }
 
-// getFolderFiles walks the given folder and returns relative file paths,
-// skipping .git, vendor, and node_modules.
-func getFolderFiles(folderPath string) []string {
-	var result []string
-	_ = filepath.WalkDir(folderPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			name := filepath.Base(path)
-			if name == ".git" || name == "vendor" || name == "node_modules" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(folderPath, path)
-		if err != nil {
-			return nil
-		}
-		result = append(result, filepath.ToSlash(rel))
-		return nil
-	})
-	sort.Strings(result)
-	return result
-}
-
 // toCommaSeparated joins a slice into a comma-separated string.
 func toCommaSeparated(s []string) string {
 	return strings.Join(s, ",")
-}
-
-// fromCommaSeparated splits a comma-separated string.
-func fromCommaSeparated(s string) []string {
-	parts := strings.Split(s, ",")
-	var res []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			res = append(res, p)
-		}
-	}
-	return res
-}
-
-// firstOr returns the first element of a slice or a default.
-func firstOr(s []string, def string) string {
-	if len(s) > 0 {
-		return s[0]
-	}
-	return def
-}
-
-// emptyIfNone returns a default string if the slice is empty.
-func emptyIfNone(s []string) string {
-	if len(s) == 0 {
-		return ""
-	}
-	return toCommaSeparated(s)
 }
 
 // safeAtoi parses an int with a fallback.
@@ -138,28 +82,6 @@ func getGitLabBranches(gw gateway.GitLabGateway, repoPath string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-// getGitLabDefaultBranch returns the default branch name from GitLab or "master".
-func getGitLabDefaultBranch(gw gateway.GitLabGateway, repoPath string) string {
-	projectName := filepath.Base(strings.TrimSuffix(repoPath, ".git"))
-	project, err := gw.FindProjectByName(projectName)
-	if err != nil || project == nil {
-		return "master"
-	}
-	branches, err := gw.GetBranches(project.ID)
-	if err != nil {
-		return "master"
-	}
-	for _, b := range branches {
-		if b.Default {
-			return b.Name
-		}
-	}
-	if len(branches) > 0 {
-		return branches[0].Name
-	}
-	return "master"
 }
 
 // getFilesFromGitLabCommits returns a deduplicated sorted list of files that

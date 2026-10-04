@@ -33,7 +33,7 @@ func (g *OSExecGitGateway) CreateOrphanBranch(ctx context.Context, repository *e
 	cmdCheckout := exec.Command("git", args...)
 	cmdCheckout.Dir = repository.Path
 	if output, err := cmdCheckout.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to create orphan branch: %v, output: %s", err, string(output))
 		return err
 	}
 
@@ -50,7 +50,7 @@ func (g *OSExecGitGateway) CreateEmptyOrphanBranch(ctx context.Context, reposito
 	cmdCheckout := exec.Command("git", args...)
 	cmdCheckout.Dir = repository.Path
 	if output, err := cmdCheckout.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to create orphan branch: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to create orphan branch: %v, output: %s", err, string(output))
 		return err
 	}
 
@@ -71,7 +71,7 @@ func (g *OSExecGitGateway) ListFiles(repoPath string) ([]string, error) {
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to list files: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to list files: %v, output: %s", err, string(output))
 		return nil, err
 	}
 	// The output is a newline-separated list of files.
@@ -92,7 +92,7 @@ func (g *OSExecGitGateway) ListFiles(repoPath string) ([]string, error) {
 func (g *OSExecGitGateway) DeleteLocalBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "-C", repoPath, "branch", "-D", branchName)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to delete local branch '%s': %w, output: %s", branchName, err, string(output))
+		g.logger.Errorf("failed to delete local branch '%s': %v, output: %s", branchName, err, string(output))
 		return err
 	}
 	return nil
@@ -102,7 +102,7 @@ func (g *OSExecGitGateway) CleanWorkdir(repoPath string) error {
 	cmd := exec.Command("git", "clean", "-fdx")
 	cmd.Dir = repoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to clean workdir: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to clean workdir: %v, output: %s", err, string(output))
 		return err
 	}
 	return nil
@@ -121,7 +121,7 @@ func (g *OSExecGitGateway) RemoveDirectory(repoPath, dirName string) error {
 func (g *OSExecGitGateway) CheckoutBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "-C", repoPath, "checkout", branchName)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to checkout branch '%s': %w, output: %s", branchName, err, string(output))
+		g.logger.Errorf("failed to checkout branch '%s': %v, output: %s", branchName, err, string(output))
 		return err
 	}
 	return nil
@@ -130,7 +130,7 @@ func (g *OSExecGitGateway) AddAll(repoPath string) error {
 	cmdAdd := exec.Command("git", "add", ".")
 	cmdAdd.Dir = repoPath
 	if output, err := cmdAdd.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to stage files: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to stage files: %v, output: %s", err, string(output))
 		return err
 	}
 	return nil
@@ -144,7 +144,7 @@ func (g *OSExecGitGateway) Commit(repoPath, message string) error {
 	cmdCommit := exec.Command("git", "commit", "-m", message)
 	cmdCommit.Dir = repoPath
 	if output, err := cmdCommit.CombinedOutput(); err != nil {
-		g.logger.Errorf("failed to make commit: %w, output: %s", err, string(output))
+		g.logger.Errorf("failed to make commit: %v, output: %s", err, string(output))
 		return err
 	}
 
@@ -157,7 +157,7 @@ func (g *OSExecGitGateway) BranchExists(repoPath, branchName string) (bool, erro
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to list branch '%s': %w, output: %s", branchName, err, string(output))
+		g.logger.Errorf("failed to list branch '%s': %v, output: %s", branchName, err, string(output))
 		return false, err
 	}
 	return strings.TrimSpace(string(output)) != "", nil
@@ -168,7 +168,7 @@ func (g *OSExecGitGateway) GetCommitMessage(repoPath, commitHash string) (string
 	cmd := exec.Command("git", "-C", repoPath, "show", "-s", "--format=%B", commitHash)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to get commit message for %s: %w, output: %s", commitHash, err, string(output))
+		g.logger.Errorf("failed to get commit message for %s: %v, output: %s", commitHash, err, string(output))
 		return "", err
 	}
 	return string(output), nil
@@ -179,7 +179,7 @@ func (g *OSExecGitGateway) GetCommitFiles(repoPath, commitHash string) ([]gatewa
 	cmd := exec.Command("git", "-C", repoPath, "diff-tree", "--no-commit-id", "--name-status", "-r", commitHash)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to get commit files for %s: %w, output: %s", commitHash, err, string(output))
+		g.logger.Errorf("failed to get commit files for %s: %v, output: %s", commitHash, err, string(output))
 		return nil, err
 	}
 
@@ -216,7 +216,7 @@ func (g *OSExecGitGateway) GetFileContentFromCommit(repoPath, commitHash, filePa
 	cmd := exec.Command("git", "-C", repoPath, "show", commitHash+":"+filePath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to get file content %s from commit %s: %w, output: %s", filePath, commitHash, err, string(output))
+		g.logger.Errorf("failed to get file content %s from commit %s: %v, output: %s", filePath, commitHash, err, string(output))
 		return nil, err
 	}
 	return output, nil
@@ -228,7 +228,7 @@ func (g *OSExecGitGateway) GetBranchDiffFiles(repoPath, baseBranch, sourceBranch
 	cmd := exec.Command("git", "-C", repoPath, "diff", "--name-status", baseBranch+".."+sourceBranch, "--", ":!vendor")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to get diff between %s and %s: %w, output: %s", baseBranch, sourceBranch, err, string(output))
+		g.logger.Errorf("failed to get diff between %s and %s: %v, output: %s", baseBranch, sourceBranch, err, string(output))
 		return nil, err
 	}
 
@@ -264,7 +264,7 @@ func (g *OSExecGitGateway) GetMergeBase(repoPath, branch1, branch2 string) (stri
 	cmd := exec.Command("git", "-C", repoPath, "merge-base", branch1, branch2)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to get merge-base of %s and %s: %w, output: %s", branch1, branch2, err, string(output))
+		g.logger.Errorf("failed to get merge-base of %s and %s: %v, output: %s", branch1, branch2, err, string(output))
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
@@ -275,7 +275,7 @@ func (g *OSExecGitGateway) ListFilesInBranch(repoPath, branchName string) ([]str
 	cmd := exec.Command("git", "-C", repoPath, "ls-tree", "-r", "--name-only", branchName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		g.logger.Errorf("failed to list files in branch %s: %w, output: %s", branchName, err, string(output))
+		g.logger.Errorf("failed to list files in branch %s: %v, output: %s", branchName, err, string(output))
 		return nil, err
 	}
 	files := strings.Split(string(output), "\n")

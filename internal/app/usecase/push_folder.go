@@ -114,7 +114,7 @@ func (uc *PushFolderUseCase) Execute(ctx context.Context, input PushFolderInput)
 	// Step 3: Commit files via GitLab API.
 	commitMessage := fmt.Sprintf("Add %d file(s) from folder via reposqueeze", len(actions))
 	startTime := time.Now()
-	err = uc.GitLabGateway.CommitFilesViaAPI(
+	_, err = uc.GitLabGateway.CommitFilesViaAPI(
 		fmt.Sprintf("%d", project.ID),
 		input.BranchName,
 		commitMessage,

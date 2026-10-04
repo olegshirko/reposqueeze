@@ -88,17 +88,7 @@ func (m menuModel) SelectedCmd() string {
 	return ""
 }
 
-func backToMenuMsg() tea.Msg {
-	return backMsg{}
-}
-
 type backMsg struct{}
-
-func quitMsg() tea.Msg {
-	return quitAppMsg{}
-}
-
-type quitAppMsg struct{}
 
 func selectedCmdMsg(cmd string) tea.Cmd {
 	return func() tea.Msg {

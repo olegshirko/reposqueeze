@@ -6,10 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
@@ -24,13 +26,33 @@ type HTTPGitLabGateway struct {
 	logger  logger.Logger
 }
 
+// defaultHTTPTimeout bounds every GitLab API call, including archive downloads.
+const defaultHTTPTimeout = 5 * time.Minute
+
 // NewHTTPGitLabGateway creates a new instance of HTTPGitLabGateway.
 func NewHTTPGitLabGateway(token string, log logger.Logger) *HTTPGitLabGateway {
 	return &HTTPGitLabGateway{
-		Client: http.DefaultClient,
+		Client: &http.Client{Timeout: defaultHTTPTimeout},
 		Token:  token,
 		logger: log,
 	}
+}
+
+// WithBaseURL sets the GitLab instance URL, e.g. "https://gitlab.example.com".
+// The "/api/v4" suffix is appended when missing.
+func (g *HTTPGitLabGateway) WithBaseURL(base string) *HTTPGitLabGateway {
+	g.BaseURL = NormalizeBaseURL(base)
+	return g
+}
+
+// NormalizeBaseURL turns a GitLab instance URL into its API v4 root.
+// An empty string stays empty so the gitlab.com default applies.
+func NormalizeBaseURL(base string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" || strings.HasSuffix(base, "/api/v4") {
+		return base
+	}
+	return base + "/api/v4"
 }
 
 func (g *HTTPGitLabGateway) baseURL() string {
@@ -47,24 +69,27 @@ type commitPayload struct {
 	Actions       []gateway.CommitAction `json:"actions"`
 }
 
-// CommitFilesViaAPI creates a new commit in a GitLab repository with a set of file actions.
-func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) error {
-	// 1. Prepare the API payload
-	for i := range actions {
-		actions[i].Content = base64.StdEncoding.EncodeToString([]byte(actions[i].Content))
-		actions[i].Encoding = "base64"
+// CommitFilesViaAPI creates a new commit in a GitLab repository with a set of file actions
+// and returns the SHA of the created commit.
+func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (string, error) {
+	// 1. Prepare the API payload on a copy so the caller's actions stay untouched.
+	encoded := make([]gateway.CommitAction, len(actions))
+	for i, a := range actions {
+		a.Content = base64.StdEncoding.EncodeToString([]byte(a.Content))
+		a.Encoding = "base64"
+		encoded[i] = a
 	}
 
 	payload := commitPayload{
 		Branch:        branchName,
 		CommitMessage: commitMessage,
-		Actions:       actions,
+		Actions:       encoded,
 	}
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		g.logger.Errorf("failed to marshal gitlab commit payload: %w", err)
-		return err
+		g.logger.Errorf("failed to marshal gitlab commit payload: %v", err)
+		return "", err
 	}
 
 	// 2. Construct the API endpoint URL
@@ -75,8 +100,8 @@ func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 	// 3. Create the HTTP request
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
-		return err
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
+		return "", err
 	}
 
 	// 4. Set necessary headers
@@ -86,20 +111,25 @@ func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 	// 5. Send the request
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
-		return err
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	// 6. Check the response status code
 	if resp.StatusCode != http.StatusCreated {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-201 status: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
-		return err
+		return "", err
 	}
 
-	return nil
+	var created gateway.CommitInfo
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		return "", fmt.Errorf("failed to decode created commit: %w", err)
+	}
+
+	return created.ID, nil
 }
 
 type createBranchPayload struct {
@@ -116,7 +146,7 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		g.logger.Errorf("failed to marshal gitlab create branch payload: %w", err)
+		g.logger.Errorf("failed to marshal gitlab create branch payload: %v", err)
 		return err
 	}
 
@@ -127,7 +157,7 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 	// 3. Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return err
 	}
 
@@ -138,14 +168,14 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 	// 5. Send the request
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	// 6. Check the response status code
 	if resp.StatusCode != http.StatusCreated {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-201 status for create branch: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
 		return err
@@ -156,11 +186,11 @@ func (g *HTTPGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, b
 
 func (g *HTTPGitLabGateway) FindProjectByName(projectName string) (*entity.Project, error) {
 	baseURL := g.baseURL()
-	apiURL := fmt.Sprintf("%s/projects?owned=true&search=%s", baseURL, url.QueryEscape(projectName))
+	apiURL := fmt.Sprintf("%s/projects?owned=true&per_page=100&search=%s", baseURL, url.QueryEscape(projectName))
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return nil, err
 	}
 
@@ -168,13 +198,13 @@ func (g *HTTPGitLabGateway) FindProjectByName(projectName string) (*entity.Proje
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-200 status for find project: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
 		return nil, err
@@ -182,7 +212,7 @@ func (g *HTTPGitLabGateway) FindProjectByName(projectName string) (*entity.Proje
 
 	var projects []entity.Project
 	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
-		g.logger.Errorf("failed to decode gitlab projects: %w", err)
+		g.logger.Errorf("failed to decode gitlab projects: %v", err)
 		return nil, err
 	}
 
@@ -212,7 +242,7 @@ func (g *HTTPGitLabGateway) DeleteProject(projectID int) error {
 
 	req, err := http.NewRequest("DELETE", apiURL, nil)
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return err
 	}
 
@@ -231,13 +261,13 @@ func (g *HTTPGitLabGateway) DeleteProject(projectID int) error {
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	// Log response details
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 	g.logger.Infof("GitLab API Response Status: %s", resp.Status)
 	g.logger.Infof("GitLab API Response Body: %s", string(body))
 
@@ -261,7 +291,7 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		g.logger.Errorf("failed to marshal gitlab create project payload: %w", err)
+		g.logger.Errorf("failed to marshal gitlab create project payload: %v", err)
 		return nil, err
 	}
 
@@ -270,7 +300,7 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return nil, err
 	}
 
@@ -279,13 +309,13 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-201 status for create project: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
 		return nil, err
@@ -293,7 +323,7 @@ func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 
 	var project entity.Project
 	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
-		g.logger.Errorf("failed to decode gitlab project: %w", err)
+		g.logger.Errorf("failed to decode gitlab project: %v", err)
 		return nil, err
 	}
 
@@ -309,7 +339,7 @@ func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, ref string, write
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return err
 	}
 
@@ -317,13 +347,13 @@ func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, ref string, write
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-200 status for download archive: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
 		return err
@@ -331,7 +361,7 @@ func (g *HTTPGitLabGateway) DownloadRepoArchive(projectID int, ref string, write
 
 	_, err = writer.ReadFrom(resp.Body)
 	if err != nil {
-		g.logger.Errorf("failed to read response body: %w", err)
+		g.logger.Errorf("failed to read response body: %v", err)
 		return err
 	}
 
@@ -344,7 +374,7 @@ func (g *HTTPGitLabGateway) GetBranches(projectID int) ([]gateway.BranchInfo, er
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return nil, err
 	}
 
@@ -352,13 +382,13 @@ func (g *HTTPGitLabGateway) GetBranches(projectID int) ([]gateway.BranchInfo, er
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-200 status for list branches: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
 		return nil, err
@@ -366,7 +396,7 @@ func (g *HTTPGitLabGateway) GetBranches(projectID int) ([]gateway.BranchInfo, er
 
 	var branches []gateway.BranchInfo
 	if err := json.NewDecoder(resp.Body).Decode(&branches); err != nil {
-		g.logger.Errorf("failed to decode branches: %w", err)
+		g.logger.Errorf("failed to decode branches: %v", err)
 		return nil, err
 	}
 
@@ -380,7 +410,7 @@ func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit i
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return nil, err
 	}
 
@@ -388,13 +418,13 @@ func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit i
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-200 status for list commits: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
 		return nil, err
@@ -402,7 +432,7 @@ func (g *HTTPGitLabGateway) GetCommits(projectID int, branchName string, limit i
 
 	var commits []gateway.CommitInfo
 	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
-		g.logger.Errorf("failed to decode commits: %w", err)
+		g.logger.Errorf("failed to decode commits: %v", err)
 		return nil, err
 	}
 
@@ -420,7 +450,7 @@ func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]gateway.
 
 		req, err := http.NewRequest("GET", apiURL, nil)
 		if err != nil {
-			g.logger.Errorf("failed to create gitlab api request: %w", err)
+			g.logger.Errorf("failed to create gitlab api request: %v", err)
 			return nil, err
 		}
 
@@ -428,12 +458,12 @@ func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]gateway.
 
 		resp, err := g.Client.Do(req)
 		if err != nil {
-			g.logger.Errorf("failed to send request to gitlab api: %w", err)
+			g.logger.Errorf("failed to send request to gitlab api: %v", err)
 			return nil, err
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := ioutil.ReadAll(resp.Body)
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			err := fmt.Errorf("gitlab api returned non-200 status for commit diff: %s, body: %s", resp.Status, string(body))
 			g.logger.Error(err)
@@ -443,7 +473,7 @@ func (g *HTTPGitLabGateway) GetCommitDiff(projectID int, sha string) ([]gateway.
 		var diffs []gateway.DiffEntry
 		if err := json.NewDecoder(resp.Body).Decode(&diffs); err != nil {
 			resp.Body.Close()
-			g.logger.Errorf("failed to decode commit diff: %w", err)
+			g.logger.Errorf("failed to decode commit diff: %v", err)
 			return nil, err
 		}
 		resp.Body.Close()
@@ -470,7 +500,7 @@ func (g *HTTPGitLabGateway) GetCompareDiff(projectID int, from, to string) ([]ga
 
 		req, err := http.NewRequest("GET", apiURL, nil)
 		if err != nil {
-			g.logger.Errorf("failed to create gitlab api request: %w", err)
+			g.logger.Errorf("failed to create gitlab api request: %v", err)
 			return nil, err
 		}
 
@@ -478,12 +508,12 @@ func (g *HTTPGitLabGateway) GetCompareDiff(projectID int, from, to string) ([]ga
 
 		resp, err := g.Client.Do(req)
 		if err != nil {
-			g.logger.Errorf("failed to send request to gitlab api: %w", err)
+			g.logger.Errorf("failed to send request to gitlab api: %v", err)
 			return nil, err
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := ioutil.ReadAll(resp.Body)
+			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			err := fmt.Errorf("gitlab api returned non-200 status for compare diff: %s, body: %s", resp.Status, string(body))
 			g.logger.Error(err)
@@ -495,7 +525,7 @@ func (g *HTTPGitLabGateway) GetCompareDiff(projectID int, from, to string) ([]ga
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			resp.Body.Close()
-			g.logger.Errorf("failed to decode compare diff: %w", err)
+			g.logger.Errorf("failed to decode compare diff: %v", err)
 			return nil, err
 		}
 		resp.Body.Close()
@@ -518,7 +548,7 @@ func (g *HTTPGitLabGateway) GetRawFile(projectID int, filePath, ref string) ([]b
 
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return nil, err
 	}
 
@@ -526,19 +556,19 @@ func (g *HTTPGitLabGateway) GetRawFile(projectID int, filePath, ref string) ([]b
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-200 status for raw file: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
 		return nil, err
 	}
 
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func (g *HTTPGitLabGateway) FileExists(projectID int, filePath, ref string) (bool, error) {
@@ -548,7 +578,7 @@ func (g *HTTPGitLabGateway) FileExists(projectID int, filePath, ref string) (boo
 
 	req, err := http.NewRequest("HEAD", apiURL, nil)
 	if err != nil {
-		g.logger.Errorf("failed to create gitlab api request: %w", err)
+		g.logger.Errorf("failed to create gitlab api request: %v", err)
 		return false, err
 	}
 
@@ -556,7 +586,7 @@ func (g *HTTPGitLabGateway) FileExists(projectID int, filePath, ref string) (boo
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		g.logger.Errorf("failed to send request to gitlab api: %w", err)
+		g.logger.Errorf("failed to send request to gitlab api: %v", err)
 		return false, err
 	}
 	defer resp.Body.Close()
@@ -569,4 +599,16 @@ func (g *HTTPGitLabGateway) FileExists(projectID int, filePath, ref string) (boo
 	}
 
 	return false, fmt.Errorf("gitlab api returned unexpected status for file exists: %s", resp.Status)
+}
+
+// GetBranchHead returns the SHA of the latest commit on the given branch.
+func (g *HTTPGitLabGateway) GetBranchHead(projectID int, branchName string) (string, error) {
+	commits, err := g.GetCommits(projectID, branchName, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(commits) == 0 {
+		return "", fmt.Errorf("branch %q has no commits", branchName)
+	}
+	return commits[0].ID, nil
 }

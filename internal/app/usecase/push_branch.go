@@ -3,8 +3,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
@@ -40,13 +38,9 @@ func NewPushBranchUseCase(gitGateway gateway.GitGateway, gitLabGateway gateway.G
 // Execute runs the use case.
 func (uc *PushBranchUseCase) Execute(ctx context.Context, input PushBranchInput) (time.Duration, int, error) {
 	// Step 1: Find the project by name.
-	projectName := filepath.Base(strings.TrimSuffix(input.RepoPath, ".git"))
-	project, err := uc.gitLabGateway.FindProjectByName(projectName)
+	project, err := resolveProject(uc.gitLabGateway, input.RepoPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to find project: %w", err)
-	}
-	if project == nil {
-		return 0, 0, fmt.Errorf("project %q not found on GitLab", projectName)
+		return 0, 0, err
 	}
 
 	// Step 2: Resolve commit message.
@@ -71,63 +65,17 @@ func (uc *PushBranchUseCase) Execute(ctx context.Context, input PushBranchInput)
 	}
 
 	// Step 5: Build commit actions.
-	var actions []gateway.CommitAction
-	for _, f := range files {
-		gitPath := filepath.ToSlash(f.Path)
-
-		switch {
-		case f.Status == "A" || f.Status == "M":
-			content, err := uc.gitGateway.GetFileContentFromCommit(input.RepoPath, input.SourceBranch, f.Path)
-			if err != nil {
-				return 0, 0, fmt.Errorf("failed to get file content for %q: %w", f.Path, err)
-			}
-
-			exists, _ := uc.gitLabGateway.FileExists(project.ID, gitPath, input.BranchName)
-			action := "create"
-			if exists {
-				action = "update"
-			}
-
-			actions = append(actions, gateway.CommitAction{
-				Action:   action,
-				FilePath: gitPath,
-				Content:  string(content),
-				Encoding: "text",
-			})
-
-		case f.Status == "D":
-			actions = append(actions, gateway.CommitAction{
-				Action:   "delete",
-				FilePath: gitPath,
-			})
-
-		case strings.HasPrefix(f.Status, "R"):
-			oldPath := filepath.ToSlash(f.OldPath)
-			content, err := uc.gitGateway.GetFileContentFromCommit(input.RepoPath, input.SourceBranch, f.Path)
-			if err != nil {
-				return 0, 0, fmt.Errorf("failed to get file content for %q: %w", f.Path, err)
-			}
-
-			actions = append(actions, gateway.CommitAction{
-				Action:   "delete",
-				FilePath: oldPath,
-			})
-
-			exists, _ := uc.gitLabGateway.FileExists(project.ID, gitPath, input.BranchName)
-			action := "create"
-			if exists {
-				action = "update"
-			}
-			actions = append(actions, gateway.CommitAction{
-				Action:   action,
-				FilePath: gitPath,
-				Content:  string(content),
-				Encoding: "text",
-			})
-
-		default:
-			return 0, 0, fmt.Errorf("unsupported file change status %q for file %q", f.Status, f.Path)
-		}
+	actions, err := buildCommitActions(files,
+		func(path string) ([]byte, error) {
+			return uc.gitGateway.GetFileContentFromCommit(input.RepoPath, input.SourceBranch, path)
+		},
+		func(path string) bool {
+			exists, _ := uc.gitLabGateway.FileExists(project.ID, path, input.BranchName)
+			return exists
+		},
+	)
+	if err != nil {
+		return 0, 0, err
 	}
 
 	if len(actions) == 0 {
@@ -136,7 +84,7 @@ func (uc *PushBranchUseCase) Execute(ctx context.Context, input PushBranchInput)
 
 	// Step 6: Commit via GitLab API.
 	startTime := time.Now()
-	err = uc.gitLabGateway.CommitFilesViaAPI(
+	_, err = uc.gitLabGateway.CommitFilesViaAPI(
 		fmt.Sprintf("%d", project.ID),
 		input.BranchName,
 		commitMessage,

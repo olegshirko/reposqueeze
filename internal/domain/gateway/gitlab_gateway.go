@@ -38,7 +38,8 @@ type BranchInfo struct {
 
 // GitLabGateway defines the interface for interacting with the GitLab API.
 type GitLabGateway interface {
-	CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []CommitAction) error
+	// CommitFilesViaAPI creates one commit with the given actions and returns its SHA.
+	CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []CommitAction) (string, error)
 	CreateRemoteBranch(ctx context.Context, projectID, branchName, refSHA string) error
 	FindProjectByName(name string) (*entity.Project, error)
 	DeleteProject(projectID int) error
@@ -50,4 +51,5 @@ type GitLabGateway interface {
 	GetCompareDiff(projectID int, from, to string) ([]DiffEntry, error)
 	GetRawFile(projectID int, filePath, ref string) ([]byte, error)
 	FileExists(projectID int, filePath, ref string) (bool, error)
+	GetBranchHead(projectID int, branchName string) (string, error)
 }

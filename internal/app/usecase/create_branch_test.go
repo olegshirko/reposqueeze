@@ -108,9 +108,18 @@ type MockGitLabGateway struct {
 	mock.Mock
 }
 
-func (m *MockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) error {
+func (m *MockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (string, error) {
 	args := m.Called(projectID, branchName, commitMessage, actions)
-	return args.Error(0)
+	// Older expectations return only an error; newer ones return (sha, error).
+	if len(args) == 1 {
+		return "", args.Error(0)
+	}
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockGitLabGateway) GetBranchHead(projectID int, branchName string) (string, error) {
+	args := m.Called(projectID, branchName)
+	return args.String(0), args.Error(1)
 }
 
 func (m *MockGitLabGateway) CreateRemoteBranch(ctx context.Context, projectID, branchName, refSHA string) error {

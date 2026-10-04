@@ -37,13 +37,9 @@ func NewPushFilesUseCase(gitLabGateway gateway.GitLabGateway, log logger.Logger)
 // Execute runs the use case.
 func (uc *PushFilesUseCase) Execute(ctx context.Context, input PushFilesInput) (time.Duration, int, error) {
 	// Step 1: Find the project by name.
-	projectName := filepath.Base(strings.TrimSuffix(input.RepoPath, ".git"))
-	project, err := uc.GitLabGateway.FindProjectByName(projectName)
+	project, err := resolveProject(uc.GitLabGateway, input.RepoPath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to find project: %w", err)
-	}
-	if project == nil {
-		return 0, 0, fmt.Errorf("project %q not found on GitLab", projectName)
+		return 0, 0, err
 	}
 
 	// Step 2: Parse the comma-separated file list.
@@ -109,7 +105,7 @@ func (uc *PushFilesUseCase) Execute(ctx context.Context, input PushFilesInput) (
 	// Step 4: Commit via GitLab API.
 	commitMessage := fmt.Sprintf("Add %d file(s) via reposqueeze", len(actions))
 	startTime := time.Now()
-	err = uc.GitLabGateway.CommitFilesViaAPI(
+	_, err = uc.GitLabGateway.CommitFilesViaAPI(
 		fmt.Sprintf("%d", project.ID),
 		input.BranchName,
 		commitMessage,

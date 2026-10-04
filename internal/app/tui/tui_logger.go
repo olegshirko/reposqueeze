@@ -39,11 +39,11 @@ func (l *TUILogger) Close() {
 	close(l.ch)
 }
 
-func (l *TUILogger) Info(args ...interface{})  { l.send("INFO", fmt.Sprint(args...)) }
+func (l *TUILogger) Info(args ...interface{}) { l.send("INFO", fmt.Sprint(args...)) }
 func (l *TUILogger) Infof(format string, args ...interface{}) {
 	l.send("INFO", fmt.Sprintf(format, args...))
 }
-func (l *TUILogger) Warn(args ...interface{})  { l.send("WARN", fmt.Sprint(args...)) }
+func (l *TUILogger) Warn(args ...interface{}) { l.send("WARN", fmt.Sprint(args...)) }
 func (l *TUILogger) Warnf(format string, args ...interface{}) {
 	l.send("WARN", fmt.Sprintf(format, args...))
 }

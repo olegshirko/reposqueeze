@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"strings"
@@ -49,38 +50,63 @@ func NewCLIController(
 	}
 }
 
-// Run executes the controller logic.
-func (c *CLIController) Run(args []string) {
+// Exit codes returned by Run.
+const (
+	ExitOK    = 0
+	ExitError = 1
+	ExitUsage = 2
+)
+
+// errUsage signals that the command was called with missing or invalid arguments.
+var errUsage = errors.New("invalid usage")
+
+// Run executes the controller logic and returns a process exit code.
+func (c *CLIController) Run(args []string) int {
 	if len(args) < 1 {
 		c.printUsage()
-		return
+		return ExitUsage
 	}
 
 	command := args[0]
 	remainingArgs := args[1:]
 
+	var err error
 	switch command {
 	case "create-from-local":
-		c.handleCreateFromLocal(remainingArgs)
+		err = c.handleCreateFromLocal(remainingArgs)
 	case "create-from-gitlab":
-		c.handleCreateFromGitlab(remainingArgs)
+		err = c.handleCreateFromGitlab(remainingArgs)
 	case "push-files":
-		c.handlePushFiles(remainingArgs)
+		err = c.handlePushFiles(remainingArgs)
 	case "pull-files":
-		c.handlePullFiles(remainingArgs)
+		err = c.handlePullFiles(remainingArgs)
 	case "push-folder":
-		c.handlePushFolder(remainingArgs)
+		err = c.handlePushFolder(remainingArgs)
 	case "cherry-pick-commit":
-		c.handleCherryPickCommit(remainingArgs)
+		err = c.handleCherryPickCommit(remainingArgs)
 	case "push-branch":
-		c.handlePushBranch(remainingArgs)
+		err = c.handlePushBranch(remainingArgs)
+	case "help", "-h", "--help":
+		c.printUsage()
+		return ExitOK
 	default:
 		c.logger.Errorf("Unknown command: %s", command)
 		c.printUsage()
+		return ExitUsage
+	}
+
+	switch {
+	case err == nil:
+		return ExitOK
+	case errors.Is(err, errUsage):
+		return ExitUsage
+	default:
+		c.logger.Errorf("Error: %v", err)
+		return ExitError
 	}
 }
 
-func (c *CLIController) handleCreateFromLocal(args []string) {
+func (c *CLIController) handleCreateFromLocal(args []string) error {
 	fs := flag.NewFlagSet("create-from-local", flag.ExitOnError)
 	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "", "Name of the new orphan branch")
@@ -90,7 +116,7 @@ func (c *CLIController) handleCreateFromLocal(args []string) {
 
 	if len(fs.Args()) == 0 || *branchName == "" {
 		fs.Usage()
-		return
+		return errUsage
 	}
 
 	input := usecase.Input{
@@ -102,15 +128,15 @@ func (c *CLIController) handleCreateFromLocal(args []string) {
 	c.logger.Infof("Starting process for repository: %s", input.RepoPath)
 	duration, filesCount, err := c.createFromLocalUseCase.Execute(context.Background(), input)
 	if err != nil {
-		c.logger.Errorf("Error: %v", err)
-		return
+		return err
 	}
 
 	c.logger.Infof("Successfully created and pushed orphan branch '%s'.", input.BranchName)
 	c.logger.Infof("Copied %d files in %s.", filesCount, duration)
+	return nil
 }
 
-func (c *CLIController) handleCreateFromGitlab(args []string) {
+func (c *CLIController) handleCreateFromGitlab(args []string) error {
 	fs := flag.NewFlagSet("create-from-gitlab", flag.ExitOnError)
 	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "", "Name of the target branch (existing or new orphan)")
@@ -121,7 +147,7 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 
 	if len(fs.Args()) == 0 || *branchName == "" {
 		fs.Usage()
-		return
+		return errUsage
 	}
 
 	input := usecase.CreateOrphanBranchFromGitlabInput{
@@ -134,15 +160,15 @@ func (c *CLIController) handleCreateFromGitlab(args []string) {
 	c.logger.Infof("Starting process for repository: %s", input.RepoPath)
 	duration, filesCount, err := c.createFromGitlabUseCase.Execute(context.Background(), input)
 	if err != nil {
-		c.logger.Errorf("Error: %v", err)
-		return
+		return err
 	}
 
 	c.logger.Infof("Successfully created and pushed orphan branch '%s'.", input.BranchName)
 	c.logger.Infof("Copied %d files in %s.", filesCount, duration)
+	return nil
 }
 
-func (c *CLIController) handlePushFiles(args []string) {
+func (c *CLIController) handlePushFiles(args []string) error {
 	fs := flag.NewFlagSet("push-files", flag.ExitOnError)
 	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "", "Target branch on GitLab")
@@ -152,7 +178,7 @@ func (c *CLIController) handlePushFiles(args []string) {
 
 	if len(fs.Args()) == 0 || *branchName == "" || *files == "" {
 		fs.Usage()
-		return
+		return errUsage
 	}
 
 	input := usecase.PushFilesInput{
@@ -164,15 +190,15 @@ func (c *CLIController) handlePushFiles(args []string) {
 	c.logger.Infof("Pushing files to project derived from: %s", input.RepoPath)
 	duration, filesCount, err := c.pushFilesUseCase.Execute(context.Background(), input)
 	if err != nil {
-		c.logger.Errorf("Error: %v", err)
-		return
+		return err
 	}
 
 	c.logger.Infof("Successfully pushed %d file(s) to branch '%s'.", filesCount, input.BranchName)
 	c.logger.Infof("Operation took %s.", duration)
+	return nil
 }
 
-func (c *CLIController) handlePullFiles(args []string) {
+func (c *CLIController) handlePullFiles(args []string) error {
 	fs := flag.NewFlagSet("pull-files", flag.ExitOnError)
 	setFlagSetUsage(fs)
 	branchName := fs.String("branch-name", "master", "Source branch on GitLab")
@@ -185,7 +211,7 @@ func (c *CLIController) handlePullFiles(args []string) {
 
 	if len(fs.Args()) == 0 {
 		fs.Usage()
-		return
+		return errUsage
 	}
 
 	input := usecase.PullFilesInput{
@@ -200,15 +226,15 @@ func (c *CLIController) handlePullFiles(args []string) {
 	c.logger.Infof("Pulling files from project derived from: %s", input.RepoPath)
 	duration, filesCount, err := c.pullFilesUseCase.Execute(context.Background(), input)
 	if err != nil {
-		c.logger.Errorf("Error: %v", err)
-		return
+		return err
 	}
 
 	c.logger.Infof("Successfully pulled %d file(s) from branch '%s'.", filesCount, input.BranchName)
 	c.logger.Infof("Operation took %s.", duration)
+	return nil
 }
 
-func (c *CLIController) handlePushFolder(args []string) {
+func (c *CLIController) handlePushFolder(args []string) error {
 	fs := flag.NewFlagSet("push-folder", flag.ExitOnError)
 	setFlagSetUsage(fs)
 	projectName := fs.String("project-name", "", "GitLab project name (default: folder base name)")
@@ -218,7 +244,7 @@ func (c *CLIController) handlePushFolder(args []string) {
 
 	if len(fs.Args()) == 0 {
 		fs.Usage()
-		return
+		return errUsage
 	}
 
 	input := usecase.PushFolderInput{
@@ -230,15 +256,15 @@ func (c *CLIController) handlePushFolder(args []string) {
 	c.logger.Infof("Pushing folder to GitLab: %s", input.FolderPath)
 	duration, filesCount, err := c.pushFolderUseCase.Execute(context.Background(), input)
 	if err != nil {
-		c.logger.Errorf("Error: %v", err)
-		return
+		return err
 	}
 
 	c.logger.Infof("Successfully pushed %d file(s) to project %q, branch %q.", filesCount, input.ProjectName, input.BranchName)
 	c.logger.Infof("Operation took %s.", duration)
+	return nil
 }
 
-func (c *CLIController) handleCherryPickCommit(args []string) {
+func (c *CLIController) handleCherryPickCommit(args []string) error {
 	fs := flag.NewFlagSet("cherry-pick-commit", flag.ExitOnError)
 	setFlagSetUsage(fs)
 	commitHash := fs.String("commit", "", "Local commit hash to cherry-pick")
@@ -249,7 +275,7 @@ func (c *CLIController) handleCherryPickCommit(args []string) {
 
 	if len(fs.Args()) == 0 || *commitHash == "" {
 		fs.Usage()
-		return
+		return errUsage
 	}
 
 	input := usecase.CherryPickCommitInput{
@@ -262,15 +288,15 @@ func (c *CLIController) handleCherryPickCommit(args []string) {
 	c.logger.Infof("Cherry-picking commit %s from %s to branch %s", input.CommitHash, input.RepoPath, input.BranchName)
 	duration, filesCount, err := c.cherryPickCommitUseCase.Execute(context.Background(), input)
 	if err != nil {
-		c.logger.Errorf("Error: %v", err)
-		return
+		return err
 	}
 
 	c.logger.Infof("Successfully cherry-picked commit %s (%d file actions) to branch '%s'.", input.CommitHash, filesCount, input.BranchName)
 	c.logger.Infof("Operation took %s.", duration)
+	return nil
 }
 
-func (c *CLIController) handlePushBranch(args []string) {
+func (c *CLIController) handlePushBranch(args []string) error {
 	fs := flag.NewFlagSet("push-branch", flag.ExitOnError)
 	setFlagSetUsage(fs)
 	sourceBranch := fs.String("source-branch", "", "Local source branch to push files from")
@@ -281,7 +307,7 @@ func (c *CLIController) handlePushBranch(args []string) {
 
 	if len(fs.Args()) == 0 || *sourceBranch == "" {
 		fs.Usage()
-		return
+		return errUsage
 	}
 
 	input := usecase.PushBranchInput{
@@ -294,12 +320,12 @@ func (c *CLIController) handlePushBranch(args []string) {
 	c.logger.Infof("Pushing all files from local branch %s to GitLab branch %s", input.SourceBranch, input.BranchName)
 	duration, filesCount, err := c.pushBranchUseCase.Execute(context.Background(), input)
 	if err != nil {
-		c.logger.Errorf("Error: %v", err)
-		return
+		return err
 	}
 
 	c.logger.Infof("Successfully pushed %d file(s) from branch '%s' to branch '%s'.", filesCount, input.SourceBranch, input.BranchName)
 	c.logger.Infof("Operation took %s.", duration)
+	return nil
 }
 
 // reorderFlagsFirst moves all flags (and their values) to the front of args,

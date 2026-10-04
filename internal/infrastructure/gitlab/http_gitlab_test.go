@@ -31,7 +31,7 @@ func TestHTTPGitLabGateway_CommitFilesViaAPI(t *testing.T) {
 			assert.Equal(t, "file.txt", payload.Actions[0].FilePath)
 
 			w.WriteHeader(http.StatusCreated)
-			fmt.Fprintln(w, `{}`)
+			fmt.Fprintln(w, `{"id":"abc123"}`)
 		}))
 		defer server.Close()
 
@@ -50,8 +50,11 @@ func TestHTTPGitLabGateway_CommitFilesViaAPI(t *testing.T) {
 			},
 		}
 
-		err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", actions)
+		sha, err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", actions)
 		assert.NoError(t, err)
+		assert.Equal(t, "abc123", sha)
+		// The caller's slice must not be re-encoded in place.
+		assert.Equal(t, "hello world", actions[0].Content)
 	})
 
 	t.Run("api error", func(t *testing.T) {
@@ -67,7 +70,7 @@ func TestHTTPGitLabGateway_CommitFilesViaAPI(t *testing.T) {
 			logger:  logger.NewLoggerWithWriter(logrus.New().Out),
 		}
 
-		err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", []gateway.CommitAction{})
+		_, err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", []gateway.CommitAction{})
 		assert.Error(t, err)
 	})
 
@@ -82,7 +85,7 @@ func TestHTTPGitLabGateway_CommitFilesViaAPI(t *testing.T) {
 		// into the method itself. Instead, we rely on the fact that a non-existent server will fail.
 		// This test is somewhat limited but demonstrates the error path.
 		// A better approach would be to make the base URL configurable in HTTPGitLabGateway.
-		err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", []gateway.CommitAction{})
+		_, err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", []gateway.CommitAction{})
 		assert.Error(t, err)
 	})
 }
@@ -264,4 +267,11 @@ func TestHTTPGitLabGateway_GetCompareDiff(t *testing.T) {
 		assert.Equal(t, "file_extra.txt", diffs[100].NewPath)
 		assert.Equal(t, 2, callCount)
 	})
+}
+
+func TestNormalizeBaseURL(t *testing.T) {
+	assert.Equal(t, "", NormalizeBaseURL(""))
+	assert.Equal(t, "https://git.example.com/api/v4", NormalizeBaseURL("https://git.example.com"))
+	assert.Equal(t, "https://git.example.com/api/v4", NormalizeBaseURL("https://git.example.com/"))
+	assert.Equal(t, "https://git.example.com/api/v4", NormalizeBaseURL("https://git.example.com/api/v4"))
 }

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ func NewCreateOrphanBranchFromGitlabUseCase(
 }
 
 func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, input CreateOrphanBranchFromGitlabInput) (time.Duration, int, error) {
-	projectName := filepath.Base(strings.TrimSuffix(input.RepoPath, ".git"))
+	projectName := projectNameFromPath(input.RepoPath)
 	uc.logger.Info(projectName)
 	project, err := uc.GitLabGateway.FindProjectByName(projectName)
 	if err != nil {
@@ -104,7 +105,10 @@ func (uc *CreateOrphanBranchFromGitlabUseCase) Execute(ctx context.Context, inpu
 				continue
 			}
 
-			extractedFilePath := filepath.Join(input.RepoPath, relativePath)
+			extractedFilePath, err := safeJoin(input.RepoPath, strings.TrimSuffix(relativePath, "/"))
+			if err != nil {
+				return 0, 0, fmt.Errorf("refusing to extract archive entry %q: %w", file.Name, err)
+			}
 
 			if file.FileInfo().IsDir() {
 				if err := os.MkdirAll(extractedFilePath, 0755); err != nil {
