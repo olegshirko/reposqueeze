@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,6 +42,9 @@ type appModel struct {
 
 	// pull-files wizard state
 	pendingPullFiles *usecase.PullFilesInput
+
+	// runSeq numbers runs so events from abandoned runs are ignored.
+	runSeq int
 }
 
 // NewApp creates the TUI root model.
@@ -89,11 +93,8 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// global quit
 		if msg.Type == tea.KeyCtrlC {
-			if m.runner != nil && m.runner.logCh != nil {
-				func() {
-					defer func() { recover() }()
-					close(m.runner.logCh)
-				}()
+			if m.runner != nil {
+				m.runner.stop()
 			}
 			return m, tea.Quit
 		}
@@ -130,11 +131,8 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingPullFiles = nil
 			return m, nil
 		case stateRunning, stateResult:
-			if m.runner != nil && m.runner.logCh != nil {
-				func() {
-					defer func() { recover() }()
-					close(m.runner.logCh)
-				}()
+			if m.runner != nil {
+				m.runner.stop()
 			}
 			m.state = stateMenu
 			m.runner = nil
@@ -142,12 +140,17 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-	case runResultMsg:
-		m.state = stateResult
-		if m.runner != nil {
-			*m.runner, _ = m.runner.Update(msg)
+	case runEventMsg:
+		// Events from a run the user already left are dropped.
+		if m.runner == nil || msg.runID != m.runner.runID {
+			return m, nil
 		}
-		return m, nil
+		var cmd tea.Cmd
+		*m.runner, cmd = m.runner.Update(msg)
+		if m.runner.done {
+			m.state = stateResult
+		}
+		return m, cmd
 	}
 
 	// delegate to sub-model
@@ -267,91 +270,100 @@ func (m *appModel) startPullFilesOperation(f *huh.Form) (tea.Model, tea.Cmd) {
 	}
 	m.pendingPullFiles.GitAdd = f.GetBool("gitAdd")
 
-	logCh := make(chan string, 100)
-	resultCh := make(chan runResultMsg, 1)
-
-	tuiLog := NewTUILogger(logCh)
-	gitGW := git.NewOSExecGitGateway(tuiLog)
-	gitlabGW := gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL)
-
-	// Capture the input locally so the goroutine doesn't race with the nil
+	// Capture the input locally so the run doesn't race with the nil
 	// assignment below.
 	input := *m.pendingPullFiles
 	m.pendingPullFiles = nil
 
+	return m.startRun(func(ctx context.Context, d deps) (time.Duration, int, error) {
+		return usecase.NewPullFilesUseCase(d.git, d.gitlab, d.log).Execute(ctx, input)
+	})
+}
+
+// deps are gateways bound to the TUI logger of a single run.
+type deps struct {
+	log    *TUILogger
+	git    gateway.GitGateway
+	gitlab gateway.GitLabGateway
+}
+
+// runFunc executes one operation and reports duration and processed file count.
+type runFunc func(ctx context.Context, d deps) (time.Duration, int, error)
+
+// startRun launches fn in the background and switches to the runner screen.
+func (m *appModel) startRun(fn runFunc) (tea.Model, tea.Cmd) {
+	return m.startRunWithSummary(func(ctx context.Context, d deps) runResultMsg {
+		dur, count, err := fn(ctx, d)
+		return runResultMsg{duration: dur.String(), count: count, err: err}
+	})
+}
+
+// startRunWithSummary is like startRun but lets fn build the whole result.
+func (m *appModel) startRunWithSummary(fn func(ctx context.Context, d deps) runResultMsg) (tea.Model, tea.Cmd) {
+	tuiLog := NewTUILogger()
+	d := deps{
+		log: tuiLog,
+		// rebuild gateways so their logs also appear in the TUI
+		git:    git.NewOSExecGitGateway(tuiLog),
+		gitlab: gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+
 	go func() {
-		uc := usecase.NewPullFilesUseCase(gitGW, gitlabGW, tuiLog)
-		dur, count, err := uc.Execute(context.Background(), input)
-		resultCh <- runResultMsg{duration: dur.String(), count: count, err: err}
-		time.Sleep(100 * time.Millisecond)
-		tuiLog.Close()
+		defer cancel()
+		tuiLog.Finish(fn(ctx, d))
 	}()
 
-	r := newRunnerModel(logCh, resultCh)
-	r.width = m.width
-	r.height = m.height
-	r.viewport.Width = m.width - 6
-	r.viewport.Height = m.height - 10
+	m.runSeq++
+	r := newRunnerModel(m.runSeq, tuiLog, cancel, m.width, m.height)
 	m.runner = &r
 	m.state = stateRunning
-
 	return m, m.runner.Init()
 }
 
 func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
-	logCh := make(chan string, 100)
-	resultCh := make(chan runResultMsg, 1)
-
-	tuiLog := NewTUILogger(logCh)
-	// rebuild gateways so their logs also appear in the TUI
-	gitGW := git.NewOSExecGitGateway(tuiLog)
-	gitlabGW := gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL)
-
 	f := msg.form
 
-	go func() {
-		var dur time.Duration
-		var count int
-		var err error
+	return m.startRun(func(ctx context.Context, d deps) (time.Duration, int, error) {
+		gitGW, gitlabGW, tuiLog := d.git, d.gitlab, d.log
 
 		switch msg.cmd {
 		case cmdCreateFromLocal:
 			uc := usecase.NewCreateAndPushOrphanBranchUseCase(gitGW, gitlabGW, tuiLog)
-			dur, count, err = uc.Execute(context.Background(), usecase.Input{
+			return uc.Execute(ctx, usecase.Input{
 				RepoPath:     f.GetString("repoPath"),
 				BranchName:   f.GetString("branchName"),
 				SourceBranch: f.GetString("sourceBranch"),
 			})
 		case cmdCreateFromGitlab:
 			uc := usecase.NewCreateOrphanBranchFromGitlabUseCase(gitGW, gitlabGW, tuiLog)
-			dur, count, err = uc.Execute(context.Background(), usecase.CreateOrphanBranchFromGitlabInput{
+			return uc.Execute(ctx, usecase.CreateOrphanBranchFromGitlabInput{
 				RepoPath:   f.GetString("repoPath"),
 				BranchName: f.GetString("branchName"),
 				Ref:        f.GetString("ref"),
 				Commit:     f.GetBool("commit"),
 			})
 		case cmdPushFiles:
-			files := f.Get("files")
 			filesStr := ""
-			if s, ok := files.([]string); ok {
+			if s, ok := f.Get("files").([]string); ok {
 				filesStr = toCommaSeparated(s)
 			}
 			uc := usecase.NewPushFilesUseCase(gitlabGW, tuiLog)
-			dur, count, err = uc.Execute(context.Background(), usecase.PushFilesInput{
+			return uc.Execute(ctx, usecase.PushFilesInput{
 				RepoPath:   f.GetString("repoPath"),
 				BranchName: f.GetString("branchName"),
 				Files:      filesStr,
 			})
 		case cmdPushFolder:
 			uc := usecase.NewPushFolderUseCase(gitlabGW, tuiLog)
-			dur, count, err = uc.Execute(context.Background(), usecase.PushFolderInput{
+			return uc.Execute(ctx, usecase.PushFolderInput{
 				FolderPath:  f.GetString("folderPath"),
 				ProjectName: f.GetString("projectName"),
 				BranchName:  f.GetString("branchName"),
 			})
 		case cmdCherryPickCommit:
 			uc := usecase.NewCherryPickCommitUseCase(gitGW, gitlabGW, tuiLog)
-			dur, count, err = uc.Execute(context.Background(), usecase.CherryPickCommitInput{
+			return uc.Execute(ctx, usecase.CherryPickCommitInput{
 				RepoPath:      f.GetString("repoPath"),
 				CommitHash:    f.GetString("commitHash"),
 				BranchName:    f.GetString("branchName"),
@@ -359,27 +371,13 @@ func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 			})
 		case cmdPushBranch:
 			uc := usecase.NewPushBranchUseCase(gitGW, gitlabGW, tuiLog)
-			dur, count, err = uc.Execute(context.Background(), usecase.PushBranchInput{
+			return uc.Execute(ctx, usecase.PushBranchInput{
 				RepoPath:      f.GetString("repoPath"),
 				SourceBranch:  f.GetString("sourceBranch"),
 				BranchName:    f.GetString("branchName"),
 				CommitMessage: f.GetString("commitMessage"),
 			})
 		}
-
-		resultCh <- runResultMsg{duration: dur.String(), count: count, err: err}
-		// close log channel after result so any buffered logs are drained
-		time.Sleep(100 * time.Millisecond)
-		tuiLog.Close()
-	}()
-
-	r := newRunnerModel(logCh, resultCh)
-	r.width = m.width
-	r.height = m.height
-	r.viewport.Width = m.width - 6
-	r.viewport.Height = m.height - 10
-	m.runner = &r
-	m.state = stateRunning
-
-	return m, m.runner.Init()
+		return 0, 0, fmt.Errorf("unknown command %q", msg.cmd)
+	})
 }

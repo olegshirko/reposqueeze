@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -10,54 +11,69 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// logMsg carries a single log line from the use-case logger.
-type logMsg struct {
-	content string
+// runEventMsg wraps an event from a specific run so stale runs can be ignored.
+type runEventMsg struct {
+	runID int
+	event runEvent
+	ok    bool // false when the event channel is closed
 }
 
 // runnerModel shows execution progress (spinner + log viewport).
 type runnerModel struct {
+	runID    int
 	viewport viewport.Model
 	spinner  spinner.Model
-	logCh    chan string
-	resultCh chan runResultMsg
+	log      *TUILogger
+	cancel   context.CancelFunc
+	lines    []string
 	done     bool
 	result   runResultMsg
 	width    int
 	height   int
 }
 
-func newRunnerModel(logCh chan string, resultCh chan runResultMsg) runnerModel {
+func newRunnerModel(runID int, log *TUILogger, cancel context.CancelFunc, width, height int) runnerModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(primaryColor)
 
-	v := viewport.New(0, 0)
-	v.SetContent(helpStyle.Render("Waiting for logs..."))
-
-	return runnerModel{
+	m := runnerModel{
+		runID:    runID,
 		spinner:  s,
-		viewport: v,
-		logCh:    logCh,
-		resultCh: resultCh,
+		viewport: viewport.New(0, 0),
+		log:      log,
+		cancel:   cancel,
 	}
+	m.resize(width, height)
+	m.viewport.SetContent(helpStyle.Render("Waiting for logs..."))
+	return m
 }
 
 func (m runnerModel) Init() tea.Cmd {
-	return tea.Batch(
-		m.spinner.Tick,
-		listenLogCmd(m.logCh),
-		listenResultCmd(m.resultCh),
-	)
+	return tea.Batch(m.spinner.Tick, m.listen())
+}
+
+// stop cancels the operation and detaches the UI from its logger.
+func (m *runnerModel) stop() {
+	if m.cancel != nil {
+		m.cancel()
+	}
+	if m.log != nil {
+		m.log.Stop()
+	}
+}
+
+func (m *runnerModel) resize(width, height int) {
+	m.width = width
+	m.height = height
+	m.viewport.Width = max(width-6, 10)
+	m.viewport.Height = max(height-8, 3)
 }
 
 func (m runnerModel) Update(msg tea.Msg) (runnerModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.viewport.Width = msg.Width - 6
-		m.viewport.Height = msg.Height - 10
+		m.resize(msg.Width, msg.Height)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -73,19 +89,16 @@ func (m runnerModel) Update(msg tea.Msg) (runnerModel, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case logMsg:
-		m.appendLog(msg.content)
-		return m, listenLogCmd(m.logCh)
-
-	case runResultMsg:
-		m.done = true
-		m.result = msg
-		if msg.err != nil {
-			m.appendLog(fmt.Sprintf("[ERROR] %v", msg.err))
-		} else {
-			m.appendLog(fmt.Sprintf("[DONE] Copied %d file(s) in %s", msg.count, msg.duration))
+	case runEventMsg:
+		if msg.runID != m.runID || !msg.ok {
+			return m, nil
 		}
-		return m, nil
+		if msg.event.result != nil {
+			m.finish(*msg.event.result)
+			return m, m.listen()
+		}
+		m.appendLog(msg.event.line)
+		return m, m.listen()
 	}
 
 	var cmd tea.Cmd
@@ -93,47 +106,54 @@ func (m runnerModel) Update(msg tea.Msg) (runnerModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *runnerModel) finish(res runResultMsg) {
+	m.done = true
+	m.result = res
+	switch {
+	case res.err != nil:
+		m.appendLog(errorStyle.Render(fmt.Sprintf("[ERROR] %v", res.err)))
+	case res.summary != "":
+		m.appendLog(successStyle.Render("[DONE] " + res.summary))
+	default:
+		m.appendLog(successStyle.Render(fmt.Sprintf("[DONE] %d file(s) in %s", res.count, res.duration)))
+	}
+}
+
 func (m runnerModel) View() string {
 	var b strings.Builder
-	if !m.done {
+	switch {
+	case !m.done:
 		b.WriteString(fmt.Sprintf("%s Running operation...\n\n", m.spinner.View()))
-	} else if m.result.err != nil {
+	case m.result.err != nil:
 		b.WriteString(errorStyle.Render("✗ Operation failed") + "\n\n")
-	} else {
+	default:
 		b.WriteString(successStyle.Render("✓ Operation completed") + "\n\n")
 	}
 
 	b.WriteString(m.viewport.View() + "\n\n")
-	b.WriteString(helpStyle.Render("esc: back to menu • q: quit"))
+	help := "↑/↓/pgup/pgdn: scroll • esc: back to menu • q: quit"
+	if !m.done {
+		help = "↑/↓/pgup/pgdn: scroll • esc: cancel and back to menu"
+	}
+	b.WriteString(helpStyle.Render(help))
 
 	return lipgloss.NewStyle().Margin(1, 2).Render(b.String())
 }
 
 func (m *runnerModel) appendLog(line string) {
-	content := m.viewport.View()
-	if content == helpStyle.Render("Waiting for logs...") {
-		content = ""
-	}
-	if content != "" {
-		content += "\n"
-	}
-	content += logStyle.Render(line)
-	m.viewport.SetContent(content)
-	m.viewport.GotoBottom()
-}
-
-func listenLogCmd(ch chan string) tea.Cmd {
-	return func() tea.Msg {
-		line, ok := <-ch
-		if !ok {
-			return nil
-		}
-		return logMsg{content: line}
+	m.lines = append(m.lines, logStyle.Render(line))
+	atBottom := m.viewport.AtBottom() || len(m.lines) == 1
+	m.viewport.SetContent(strings.Join(m.lines, "\n"))
+	if atBottom {
+		m.viewport.GotoBottom()
 	}
 }
 
-func listenResultCmd(ch chan runResultMsg) tea.Cmd {
+func (m runnerModel) listen() tea.Cmd {
+	ch := m.log.Events()
+	id := m.runID
 	return func() tea.Msg {
-		return <-ch
+		ev, ok := <-ch
+		return runEventMsg{runID: id, event: ev, ok: ok}
 	}
 }

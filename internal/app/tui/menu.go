@@ -105,4 +105,5 @@ type runResultMsg struct {
 	duration string
 	count    int
 	err      error
+	summary  string // optional custom success text
 }

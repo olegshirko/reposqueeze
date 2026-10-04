@@ -7,36 +7,64 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
-// TUILogger implements logger.Logger and forwards every log line to a channel.
-// It is safe for concurrent use.
-type TUILogger struct {
-	mu     sync.Mutex
-	ch     chan string
-	closed bool
+// runEvent is a single item streamed from a running operation to the UI:
+// either a log line or, as the very last event, the operation result.
+type runEvent struct {
+	line   string
+	result *runResultMsg
 }
 
-// NewTUILogger creates a logger that publishes formatted log lines on ch.
-func NewTUILogger(ch chan string) *TUILogger {
-	return &TUILogger{ch: ch}
+// TUILogger implements logger.Logger and streams every log line, followed by
+// the final result, over one channel so the UI sees them in order.
+//
+// Lines are never dropped while the UI is listening. Once the UI stops
+// listening (Stop), sends return immediately so the worker never blocks.
+type TUILogger struct {
+	ch        chan runEvent
+	done      chan struct{}
+	stopOnce  sync.Once
+	closeOnce sync.Once
+}
+
+// NewTUILogger creates a logger with its own event channel.
+func NewTUILogger() *TUILogger {
+	return &TUILogger{
+		ch:   make(chan runEvent, 1000),
+		done: make(chan struct{}),
+	}
+}
+
+// Events returns the channel the UI reads from. It is closed after Finish.
+func (l *TUILogger) Events() <-chan runEvent {
+	return l.ch
+}
+
+func (l *TUILogger) emit(ev runEvent) {
+	select {
+	case <-l.done:
+		return
+	default:
+	}
+	select {
+	case l.ch <- ev:
+	case <-l.done:
+	}
 }
 
 func (l *TUILogger) send(level string, msg string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.closed {
-		return
-	}
-	select {
-	case l.ch <- fmt.Sprintf("[%s] %s", level, msg):
-	default:
-	}
+	l.emit(runEvent{line: fmt.Sprintf("[%s] %s", level, msg)})
 }
 
-func (l *TUILogger) Close() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.closed = true
-	close(l.ch)
+// Finish publishes the result and closes the event channel. It must be called
+// exactly once, from the goroutine that produced all log lines.
+func (l *TUILogger) Finish(result runResultMsg) {
+	l.emit(runEvent{result: &result})
+	l.closeOnce.Do(func() { close(l.ch) })
+}
+
+// Stop tells the logger that nobody listens anymore (user left the screen).
+func (l *TUILogger) Stop() {
+	l.stopOnce.Do(func() { close(l.done) })
 }
 
 func (l *TUILogger) Info(args ...interface{}) { l.send("INFO", fmt.Sprint(args...)) }
