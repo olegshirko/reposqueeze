@@ -88,8 +88,8 @@ type mockGitLabGateway struct {
 	findProjectErr error
 }
 
-func (m *mockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (string, error) {
-	return "", nil
+func (m *mockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (gateway.CommitInfo, error) {
+	return gateway.CommitInfo{}, nil
 }
 func (m *mockGitLabGateway) GetBranchHead(projectID int, branchName string) (string, error) {
 	return "", nil

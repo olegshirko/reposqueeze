@@ -31,7 +31,7 @@ func TestHTTPGitLabGateway_CommitFilesViaAPI(t *testing.T) {
 			assert.Equal(t, "file.txt", payload.Actions[0].FilePath)
 
 			w.WriteHeader(http.StatusCreated)
-			fmt.Fprintln(w, `{"id":"abc123"}`)
+			fmt.Fprintln(w, `{"id":"abc123","parent_ids":["p1"]}`)
 		}))
 		defer server.Close()
 
@@ -50,9 +50,10 @@ func TestHTTPGitLabGateway_CommitFilesViaAPI(t *testing.T) {
 			},
 		}
 
-		sha, err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", actions)
+		created, err := g.CommitFilesViaAPI("123", "test-branch", "test-commit", actions)
 		assert.NoError(t, err)
-		assert.Equal(t, "abc123", sha)
+		assert.Equal(t, "abc123", created.ID)
+		assert.Equal(t, []string{"p1"}, created.ParentIDs)
 		// The caller's slice must not be re-encoded in place.
 		assert.Equal(t, "hello world", actions[0].Content)
 	})

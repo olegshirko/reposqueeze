@@ -71,7 +71,7 @@ type commitPayload struct {
 
 // CommitFilesViaAPI creates a new commit in a GitLab repository with a set of file actions
 // and returns the SHA of the created commit.
-func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (string, error) {
+func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (gateway.CommitInfo, error) {
 	// 1. Prepare the API payload on a copy so the caller's actions stay untouched.
 	encoded := make([]gateway.CommitAction, len(actions))
 	for i, a := range actions {
@@ -89,7 +89,7 @@ func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		g.logger.Errorf("failed to marshal gitlab commit payload: %v", err)
-		return "", err
+		return gateway.CommitInfo{}, err
 	}
 
 	// 2. Construct the API endpoint URL
@@ -101,7 +101,7 @@ func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		g.logger.Errorf("failed to create gitlab api request: %v", err)
-		return "", err
+		return gateway.CommitInfo{}, err
 	}
 
 	// 4. Set necessary headers
@@ -112,7 +112,7 @@ func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 	resp, err := g.Client.Do(req)
 	if err != nil {
 		g.logger.Errorf("failed to send request to gitlab api: %v", err)
-		return "", err
+		return gateway.CommitInfo{}, err
 	}
 	defer resp.Body.Close()
 
@@ -121,15 +121,15 @@ func (g *HTTPGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("gitlab api returned non-201 status: %s, body: %s", resp.Status, string(body))
 		g.logger.Error(err)
-		return "", err
+		return gateway.CommitInfo{}, err
 	}
 
 	var created gateway.CommitInfo
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return "", fmt.Errorf("failed to decode created commit: %w", err)
+		return gateway.CommitInfo{}, fmt.Errorf("failed to decode created commit: %w", err)
 	}
 
-	return created.ID, nil
+	return created, nil
 }
 
 type createBranchPayload struct {

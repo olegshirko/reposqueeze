@@ -17,8 +17,9 @@ type CommitAction struct {
 
 // CommitInfo holds basic metadata about a GitLab commit.
 type CommitInfo struct {
-	ID      string `json:"id"`
-	Message string `json:"message"`
+	ID        string   `json:"id"`
+	Message   string   `json:"message"`
+	ParentIDs []string `json:"parent_ids,omitempty"`
 }
 
 // DiffEntry describes a single file change inside a commit diff.
@@ -38,8 +39,8 @@ type BranchInfo struct {
 
 // GitLabGateway defines the interface for interacting with the GitLab API.
 type GitLabGateway interface {
-	// CommitFilesViaAPI creates one commit with the given actions and returns its SHA.
-	CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []CommitAction) (string, error)
+	// CommitFilesViaAPI creates one commit with the given actions and returns it.
+	CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []CommitAction) (CommitInfo, error)
 	CreateRemoteBranch(ctx context.Context, projectID, branchName, refSHA string) error
 	FindProjectByName(name string) (*entity.Project, error)
 	DeleteProject(projectID int) error
