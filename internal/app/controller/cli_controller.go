@@ -21,6 +21,7 @@ type CLIController struct {
 	pushFolderUseCase       *usecase.PushFolderUseCase
 	cherryPickCommitUseCase *usecase.CherryPickCommitUseCase
 	pushBranchUseCase       *usecase.PushBranchUseCase
+	syncUseCase             *usecase.SyncUseCase
 	gitlabGateway           gateway.GitLabGateway
 	logger                  logger.Logger
 }
@@ -34,6 +35,7 @@ func NewCLIController(
 	pushFolderUseCase *usecase.PushFolderUseCase,
 	cherryPickCommitUseCase *usecase.CherryPickCommitUseCase,
 	pushBranchUseCase *usecase.PushBranchUseCase,
+	syncUseCase *usecase.SyncUseCase,
 	gitlabGateway gateway.GitLabGateway,
 	log logger.Logger,
 ) *CLIController {
@@ -45,6 +47,7 @@ func NewCLIController(
 		pushFolderUseCase:       pushFolderUseCase,
 		cherryPickCommitUseCase: cherryPickCommitUseCase,
 		pushBranchUseCase:       pushBranchUseCase,
+		syncUseCase:             syncUseCase,
 		gitlabGateway:           gitlabGateway,
 		logger:                  log,
 	}
@@ -55,10 +58,15 @@ const (
 	ExitOK    = 0
 	ExitError = 1
 	ExitUsage = 2
+	// ExitConflicts means sync completed but left files to resolve manually.
+	ExitConflicts = 3
 )
 
 // errUsage signals that the command was called with missing or invalid arguments.
 var errUsage = errors.New("invalid usage")
+
+// errConflicts signals a finished sync that left conflicts to resolve.
+var errConflicts = errors.New("sync finished with conflicts")
 
 // Run executes the controller logic and returns a process exit code.
 func (c *CLIController) Run(args []string) int {
@@ -86,6 +94,14 @@ func (c *CLIController) Run(args []string) int {
 		err = c.handleCherryPickCommit(remainingArgs)
 	case "push-branch":
 		err = c.handlePushBranch(remainingArgs)
+	case "sync-init":
+		err = c.handleSyncInit(remainingArgs)
+	case "status", "sync-status":
+		err = c.handleSyncStatus(remainingArgs)
+	case "sync":
+		err = c.handleSync(remainingArgs)
+	case "sync-log":
+		err = c.handleSyncLog(remainingArgs)
 	case "help", "-h", "--help":
 		c.printUsage()
 		return ExitOK
@@ -100,6 +116,8 @@ func (c *CLIController) Run(args []string) int {
 		return ExitOK
 	case errors.Is(err, errUsage):
 		return ExitUsage
+	case errors.Is(err, errConflicts):
+		return ExitConflicts
 	default:
 		c.logger.Errorf("Error: %v", err)
 		return ExitError
@@ -388,19 +406,31 @@ func reorderFlagsFirst(fs *flag.FlagSet, args []string) []string {
 }
 
 func (c *CLIController) printUsage() {
-	c.logger.Info("Usage: reposqueeze <command> <path> [options]")
-	c.logger.Info("Commands:")
-	c.logger.Info("  create-from-local   <path> --branch-name <name> [--from <source>]")
-	c.logger.Info("  create-from-gitlab  <path> --branch-name <name>")
-	c.logger.Info("  push-files          <path> --branch-name <name> --files <rel/path/file1>,<rel/path/file2>,...")
-	c.logger.Info("                        Example: --files README.md,docs/guide.md,src/main.go")
-	c.logger.Info("  pull-files          <path> --branch-name <name> [--files <rel/path/file1>,<rel/path/file2>,...]")
-	c.logger.Info("                        Without --files: downloads changed files from the last N commit diffs (default N=1)")
-	c.logger.Info("                        Example: --files README.md,docs/guide.md")
-	c.logger.Info("                        Example: --commits 3 (pulls changed files from last 3 commits)")
-	c.logger.Info("  push-folder         <path> [--project-name <name>] [--branch-name <name>]")
-	c.logger.Info("  cherry-pick-commit  <path> --commit <hash> [--branch-name <name>] [--message <msg>]")
-	c.logger.Info("                        Pushes a single local commit's file changes to an existing GitLab project.")
-	c.logger.Info("  push-branch         <path> --source-branch <name> [--branch-name <name>] [--message <msg>]")
-	c.logger.Info("                        Pushes all tracked files from a local branch to GitLab as one commit.")
+	fmt.Println("Usage: reposqueeze <command> <path> [options]")
+	fmt.Println("Commands:")
+	fmt.Println("  create-from-local   <path> --branch-name <name> [--from <source>]")
+	fmt.Println("  create-from-gitlab  <path> --branch-name <name>")
+	fmt.Println("  push-files          <path> --branch-name <name> --files <rel/path/file1>,<rel/path/file2>,...")
+	fmt.Println("                        Example: --files README.md,docs/guide.md,src/main.go")
+	fmt.Println("  pull-files          <path> --branch-name <name> [--files <rel/path/file1>,<rel/path/file2>,...]")
+	fmt.Println("                        Without --files: downloads changed files from the last N commit diffs (default N=1)")
+	fmt.Println("                        Example: --files README.md,docs/guide.md")
+	fmt.Println("                        Example: --commits 3 (pulls changed files from last 3 commits)")
+	fmt.Println("  push-folder         <path> [--project-name <name>] [--branch-name <name>]")
+	fmt.Println("  cherry-pick-commit  <path> --commit <hash> [--branch-name <name>] [--message <msg>]")
+	fmt.Println("                        Pushes a single local commit's file changes to an existing GitLab project.")
+	fmt.Println("  push-branch         <path> --source-branch <name> [--branch-name <name>] [--message <msg>]")
+	fmt.Println("                        Pushes all tracked files from a local branch to GitLab as one commit.")
+	fmt.Println("")
+	fmt.Println("Two-way sync (a mirror = local branch <-> GitLab branch, with a journal of matching commits):")
+	fmt.Println("  sync-init           <path> [--remote-branch <name>] [--local-branch <name>] [--local-sha <sha>] [--remote-sha <sha>] [--name <mirror>] [--recover] [--force]")
+	fmt.Println("                        Records which local commit corresponds to which GitLab commit (default: both heads).")
+	fmt.Println("  status              <path> [--mirror <name>]")
+	fmt.Println("                        Shows what sync would pull, push and merge.")
+	fmt.Println("  sync                <path> [--mirror <name>] [--strategy merge|local|remote|abort] [--autostash] [--dry-run] [--message <msg>]")
+	fmt.Println("                        Pulls GitLab changes, pushes local commits, 3-way merges files changed on both sides.")
+	fmt.Println("  sync-log            <path> [--mirror <name>]")
+	fmt.Println("                        Prints the local <-> GitLab commit correspondence journal.")
+	fmt.Println("")
+	fmt.Println("  tui                 Interactive mode")
 }

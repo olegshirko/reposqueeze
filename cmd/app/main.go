@@ -10,6 +10,7 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/gitlab"
+	"github.com/olegshirko/reposqueeze/internal/infrastructure/state"
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
@@ -51,9 +52,10 @@ func run(args []string) int {
 	pushFolderUseCase := usecase.NewPushFolderUseCase(gitlabGateway, log)
 	cherryPickCommitUseCase := usecase.NewCherryPickCommitUseCase(gitGateway, gitlabGateway, log)
 	pushBranchUseCase := usecase.NewPushBranchUseCase(gitGateway, gitlabGateway, log)
+	syncUseCase := usecase.NewSyncUseCase(gitGateway, gitlabGateway, state.NewFileStore(gitGateway), log)
 
 	// 4. Create an instance of the controller, injecting the use case (Interface Adapters)
-	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, cherryPickCommitUseCase, pushBranchUseCase, gitlabGateway, log)
+	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, cherryPickCommitUseCase, pushBranchUseCase, syncUseCase, gitlabGateway, log)
 
 	// 5. Run the controller with command-line arguments
 	return cliController.Run(args)
