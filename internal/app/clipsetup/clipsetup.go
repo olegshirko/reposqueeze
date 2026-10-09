@@ -26,6 +26,7 @@ type Options struct {
 	Remote    string // ssh: explicit git remote; detected when empty
 	BaseURL   string // GitLab URL; its host is used for SSH (default gitlab.com)
 	API       usecase.ClipGitLab
+	Warnf     func(format string, args ...interface{}) // non-fatal problems (optional)
 }
 
 // Dir is where clipsync keeps its files.
@@ -58,7 +59,9 @@ func Store(ctx context.Context, o Options) (usecase.ClipStore, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
-		return clipstore.NewGitStore(remote, "clip", filepath.Join(Dir(), "git")), remote, nil
+		store := clipstore.NewGitStore(remote, "clip", filepath.Join(Dir(), "git"))
+		store.Warnf = o.Warnf
+		return store, remote, nil
 	default:
 		return nil, "", fmt.Errorf("unknown transport %q (ssh or api)", o.Transport)
 	}

@@ -69,6 +69,7 @@ func run(args []string) int {
 
 	cliController.SetClipDeps(func(ctx context.Context, o clipsetup.Options) (*usecase.ClipUseCase, string, error) {
 		o.BaseURL = gitlabBaseURL
+		o.Warnf = log.Warnf
 		if gitlabToken != "" {
 			o.API = gitlabGateway
 		}

@@ -28,6 +28,8 @@ type GitStore struct {
 	Remote string // e.g. git@gitlab.com:user/clipboard.git
 	Branch string
 	Dir    string // local bare repository used as a cache
+	// Warnf reports non-fatal problems (optional).
+	Warnf func(format string, args ...interface{})
 }
 
 var _ gateway.ClipStore = (*GitStore)(nil)
@@ -92,17 +94,73 @@ func (s *GitStore) Put(ctx context.Context, blob, meta []byte) error {
 	if err != nil {
 		return err
 	}
-	commit, err := s.git(ctx, nil, "commit-tree", strings.TrimSpace(string(treeSHA)), "-m", "clip")
+	tree = strings.TrimSpace(string(treeSHA))
+	if err := s.ensureDefaultBranch(ctx); err != nil {
+		return err
+	}
+	commit, err := s.git(ctx, nil, "commit-tree", tree, "-m", "clip")
 	if err != nil {
 		return err
 	}
 	_, err = s.git(ctx, nil, "push", "--quiet", "--force", s.Remote,
 		strings.TrimSpace(string(commit))+":refs/heads/"+s.Branch)
+	if err != nil && protectedRe.MatchString(err.Error()) {
+		err = s.pushOnTop(ctx, tree)
+	}
 	if err != nil {
 		return err
 	}
 	// Local objects are only a cache: keep the cache from growing.
 	_, _ = s.git(ctx, nil, "gc", "--quiet", "--prune=now")
+	return nil
+}
+
+var protectedRe = regexp.MustCompile(`(?i)protected branch|not allowed to force push|non-fast-forward`)
+
+// ensureDefaultBranch gives a new, empty project a "main" branch first, so
+// that GitLab makes it the default (protected) branch instead of the clip
+// branch, which must accept force pushes.
+func (s *GitStore) ensureDefaultBranch(ctx context.Context) error {
+	out, err := s.git(ctx, nil, "ls-remote", "--heads", s.Remote)
+	if err != nil && !notThere.MatchString(err.Error()) {
+		return err
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return nil // the project already has branches
+	}
+	emptyTree, err := s.git(ctx, []byte{}, "mktree")
+	if err != nil {
+		return err
+	}
+	init, err := s.git(ctx, nil, "commit-tree", strings.TrimSpace(string(emptyTree)),
+		"-m", "Shared clipboard storage (data lives in branch "+s.Branch+", encrypted)")
+	if err != nil {
+		return err
+	}
+	_, err = s.git(ctx, nil, "push", "--quiet", s.Remote, strings.TrimSpace(string(init))+":refs/heads/main")
+	return err
+}
+
+// pushOnTop is the fallback for a branch that refuses force pushes: the new
+// commit gets the current one as its parent. History then accumulates.
+func (s *GitStore) pushOnTop(ctx context.Context, tree string) error {
+	ref := "refs/clip/latest"
+	if _, err := s.git(ctx, nil, "fetch", "--quiet", "--depth", "1", "--force", s.Remote,
+		"refs/heads/"+s.Branch+":"+ref); err != nil {
+		return err
+	}
+	commit, err := s.git(ctx, nil, "commit-tree", tree, "-p", ref, "-m", "clip")
+	if err != nil {
+		return err
+	}
+	if _, err := s.git(ctx, nil, "push", "--quiet", s.Remote,
+		strings.TrimSpace(string(commit))+":refs/heads/"+s.Branch); err != nil {
+		return err
+	}
+	if s.Warnf != nil {
+		s.Warnf("branch %s is protected from force pushes, so old clipboards stay in its history; "+
+			"unprotect it in GitLab (Settings > Repository > Protected branches)", s.Branch)
+	}
 	return nil
 }
 
