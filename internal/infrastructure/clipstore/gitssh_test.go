@@ -96,3 +96,15 @@ func TestGitStore_ProtectedBranchFallsBackToRegularPush(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "second", string(blob))
 }
+
+func TestGitStore_TokenOnlyForHTTPS(t *testing.T) {
+	s := NewGitStore("https://gitlab.com/u/clipboard.git", "clip", t.TempDir())
+	s.Token = "glpat-x"
+	env := strings.Join(s.authEnv(), "\n")
+	assert.Contains(t, env, "GIT_CONFIG_KEY_0=http.extraHeader")
+	assert.Contains(t, env, "Authorization: Basic b2F1dGgyOmdscGF0LXg=") // oauth2:glpat-x
+	assert.NotContains(t, env, "glpat-x", "the raw token is not passed around")
+
+	s.Remote = "git@gitlab.com:u/clipboard.git"
+	assert.Empty(t, s.authEnv(), "SSH remotes never get the token")
+}

@@ -72,6 +72,8 @@ func run(args []string) int {
 		o.Warnf = log.Warnf
 		if gitlabToken != "" {
 			o.API = gitlabGateway
+			o.Token = gitlabToken
+			o.CurrentUser = gitlabGateway.CurrentUser
 		}
 		store, where, err := clipsetup.Store(ctx, o)
 		if err != nil {

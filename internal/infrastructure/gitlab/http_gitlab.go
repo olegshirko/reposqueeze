@@ -788,3 +788,18 @@ func (g *HTTPGitLabGateway) DeletePackageFile(projectID, packageID, fileID int) 
 		g.baseURL(), projectID, packageID, fileID), nil, http.StatusNoContent, http.StatusOK)
 	return err
 }
+
+// CurrentUser returns the username the token belongs to.
+func (g *HTTPGitLabGateway) CurrentUser() (string, error) {
+	data, err := g.do(http.MethodGet, g.baseURL()+"/user", nil, http.StatusOK)
+	if err != nil {
+		return "", err
+	}
+	var u struct {
+		Username string `json:"username"`
+	}
+	if err := json.Unmarshal(data, &u); err != nil || u.Username == "" {
+		return "", fmt.Errorf("cannot read the GitLab user: %v", err)
+	}
+	return u.Username, nil
+}

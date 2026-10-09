@@ -14,9 +14,16 @@ import (
 // runClip sends or receives the shared clipboard right away (no form).
 func (m *appModel) runClip(cmd string) (tea.Model, tea.Cmd) {
 	cfg := usecase.ClipConfig{KeyFile: clipsetup.KeyFile()}
-	baseURL := m.gitlabBaseURL
+	baseURL, token := m.gitlabBaseURL, m.gitlabToken
 	return m.startRunWithSummary(func(ctx context.Context, d deps) runResultMsg {
-		store, _, err := clipsetup.Store(ctx, clipsetup.Options{BaseURL: baseURL, API: d.clip})
+		o := clipsetup.Options{BaseURL: baseURL, API: d.clip, Warnf: d.log.Warnf}
+		if token != "" {
+			o.Token = token
+			if u, ok := d.clip.(interface{ CurrentUser() (string, error) }); ok {
+				o.CurrentUser = u.CurrentUser
+			}
+		}
+		store, _, err := clipsetup.Store(ctx, o)
 		if err != nil {
 			return runResultMsg{err: err}
 		}

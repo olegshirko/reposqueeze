@@ -4,6 +4,7 @@ package clipstore
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -30,6 +31,9 @@ type GitStore struct {
 	Dir    string // local bare repository used as a cache
 	// Warnf reports non-fatal problems (optional).
 	Warnf func(format string, args ...interface{})
+	// Token authenticates HTTPS remotes (GitLab accepts a personal access
+	// token as the password). It reaches git through the environment only.
+	Token string
 }
 
 var _ gateway.ClipStore = (*GitStore)(nil)
@@ -49,6 +53,7 @@ func (s *GitStore) git(ctx context.Context, stdin []byte, args ...string) ([]byt
 		"GIT_AUTHOR_NAME=clipsync", "GIT_AUTHOR_EMAIL=clipsync@localhost",
 		"GIT_COMMITTER_NAME=clipsync", "GIT_COMMITTER_EMAIL=clipsync@localhost",
 		"GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(cmd.Env, s.authEnv()...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -59,6 +64,20 @@ func (s *GitStore) git(ctx context.Context, stdin []byte, args ...string) ([]byt
 		return nil, fmt.Errorf("git %s: %v: %s", args[0], err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
+}
+
+// authEnv passes the token as an HTTP header through git's environment
+// config (not argv, so it does not show up in process lists).
+func (s *GitStore) authEnv() []string {
+	if s.Token == "" || !strings.HasPrefix(s.Remote, "http") {
+		return nil
+	}
+	basic := base64.StdEncoding.EncodeToString([]byte("oauth2:" + s.Token))
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.extraHeader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
+	}
 }
 
 func (s *GitStore) init(ctx context.Context) error {
