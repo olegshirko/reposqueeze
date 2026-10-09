@@ -92,6 +92,8 @@ func (c *Clipsync) WatchDoubleCopy(ctx context.Context, window time.Duration, on
 	// Stop the whole process group, so no child keeps the output pipe open.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	// Whatever survives the kill, Wait closes the pipe after this delay.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -101,13 +103,22 @@ func (c *Clipsync) WatchDoubleCopy(ctx context.Context, window time.Duration, on
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	sc := bufio.NewScanner(out)
-	for sc.Scan() {
-		if strings.TrimSpace(sc.Text()) == "double" {
-			onDouble()
+	lines := make(chan struct{})
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(out)
+		for sc.Scan() {
+			if strings.TrimSpace(sc.Text()) == "double" {
+				onDouble()
+			}
 		}
+	}()
+	select {
+	case <-lines: // the helper exited by itself
+	case <-ctx.Done():
 	}
-	err = cmd.Wait()
+	err = cmd.Wait() // kills the group if ctx is done, then closes the pipe
+	<-lines
 	if ctx.Err() != nil {
 		return nil
 	}

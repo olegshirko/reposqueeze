@@ -50,7 +50,7 @@ func TestClipsync_Errors(t *testing.T) {
 }
 
 func TestClipsync_WatchDoubleCopy(t *testing.T) {
-	bin := fakeBin(t, `echo "clipsync: слежу" >&2; echo double; sleep 0.1; echo noise; echo double; sleep 5`)
+	bin := fakeBin(t, `echo "clipsync: слежу" >&2; echo double; sleep 0.1; echo noise; echo double; exec sleep 5`)
 	ctx, cancel := context.WithCancel(context.Background())
 	var n atomic.Int32
 	done := make(chan error, 1)
@@ -61,6 +61,24 @@ func TestClipsync_WatchDoubleCopy(t *testing.T) {
 	select {
 	case err := <-done:
 		assert.NoError(t, err, "stopping via context is not an error")
+	case <-time.After(3 * time.Second):
+		t.Fatal("watch did not stop")
+	}
+}
+
+func TestClipsync_WatchStopsEvenIfAChildSurvives(t *testing.T) {
+	// The child is started in its own process group, so killing the helper's
+	// group does not reach it and it keeps the output pipe open.
+	bin := fakeBin(t, `echo double; perl -e 'setpgrp(0,0); sleep 5' & wait`)
+	ctx, cancel := context.WithCancel(context.Background())
+	var n atomic.Int32
+	done := make(chan error, 1)
+	go func() { done <- NewClipsync(bin).WatchDoubleCopy(ctx, time.Second, func() { n.Add(1) }) }()
+
+	require.Eventually(t, func() bool { return n.Load() == 1 }, 2*time.Second, 20*time.Millisecond)
+	cancel()
+	select {
+	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("watch did not stop")
 	}
