@@ -88,7 +88,39 @@ func TestDateSpread_Validation(t *testing.T) {
 	s, err = ParseDateSpread("2026-09-01", "2026-09-10", "", false, 0)
 	require.NoError(t, err)
 	_, err = s.Schedule(5, day("2026-09-05"))
-	assert.Error(t, err, "dates in the future are rejected")
+	require.Error(t, err, "an end date in the future is rejected")
+	assert.Contains(t, err.Error(), "the end date 2026-09-10 is in the future (today is 2026-09-05)")
+}
+
+func TestDateSpread_EndingToday(t *testing.T) {
+	// Mon 2026-09-14 .. Wed 2026-09-16, and "now" is Wednesday 12:00.
+	s, err := ParseDateSpread("2026-09-14", "2026-09-16", "10-19", false, 20*time.Minute)
+	require.NoError(t, err)
+	now := day("2026-09-16").Add(12 * time.Hour)
+
+	for seed := int64(1); seed <= 30; seed++ {
+		s.Seed = seed
+		dates, err := s.Schedule(9, now)
+		require.NoError(t, err)
+		assert.False(t, dates[8].After(now), "no commit after now: %s", dates[8])
+		assert.Equal(t, "2026-09-16", dates[8].Format(dayLayout), "today is still used")
+		for i := 1; i < len(dates); i++ {
+			assert.True(t, dates[i].After(dates[i-1]))
+		}
+	}
+
+	// Before the working day starts, today is skipped.
+	early := day("2026-09-16").Add(8 * time.Hour)
+	dates, err := s.Schedule(4, early)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-09-15", dates[3].Format(dayLayout))
+
+	// A one-day period that has not started yet has no working time.
+	s, err = ParseDateSpread("2026-09-16", "2026-09-16", "10-19", false, 0)
+	require.NoError(t, err)
+	_, err = s.Schedule(1, early)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "start the period earlier")
 }
 
 func TestDateSpread_CoversWholePeriod(t *testing.T) {

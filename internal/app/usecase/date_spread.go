@@ -81,16 +81,51 @@ func (s *DateSpread) days() []time.Time {
 	return out
 }
 
-// Schedule returns n increasing commit times. Times later than now are
-// rejected, so history never ends in the future.
+// workWindow is the usable part of one day.
+type workWindow struct{ start, end time.Time }
+
+// windows returns the working window of every usable day up to now. Today's
+// window ends at the current time; today is skipped if work has not started.
+func (s *DateSpread) windows(now time.Time) ([]workWindow, error) {
+	now = now.In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	if s.To.After(today) {
+		return nil, fmt.Errorf("the end date %s is in the future (today is %s)", s.To.Format(dayLayout), today.Format(dayLayout))
+	}
+	var out []workWindow
+	for _, d := range s.days() {
+		w := workWindow{
+			start: time.Date(d.Year(), d.Month(), d.Day(), s.StartHour, 0, 0, 0, time.Local),
+			end:   time.Date(d.Year(), d.Month(), d.Day(), s.EndHour, 0, 0, 0, time.Local),
+		}
+		if d.Equal(today) {
+			if limit := now.Add(-time.Minute).Truncate(time.Minute); limit.Before(w.end) {
+				w.end = limit
+			}
+			if w.end.Sub(w.start) < time.Minute {
+				continue // the working day has not started yet
+			}
+		}
+		out = append(out, w)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no working time between %s and now; start the period earlier", s.From.Format(dayLayout))
+	}
+	return out, nil
+}
+
+// Schedule returns n increasing commit times, none of them later than now.
 func (s *DateSpread) Schedule(n int, now time.Time) ([]time.Time, error) {
 	if err := s.validate(); err != nil {
+		return nil, err
+	}
+	days, err := s.windows(now)
+	if err != nil {
 		return nil, err
 	}
 	if n == 0 {
 		return nil, nil
 	}
-	days := s.days()
 	seed := s.Seed
 	if seed == 0 {
 		seed = time.Now().UnixNano()
@@ -113,29 +148,25 @@ func (s *DateSpread) Schedule(n int, now time.Time) ([]time.Time, error) {
 		perDay[d] = append(perDay[d], i)
 	}
 
-	window := time.Duration(s.EndHour-s.StartHour) * time.Hour
 	out := make([]time.Time, n)
 	for d, idx := range perDay {
 		if len(idx) == 0 {
 			continue
 		}
-		start := time.Date(days[d].Year(), days[d].Month(), days[d].Day(), s.StartHour, 0, 0, 0, time.Local)
-		slot := window / time.Duration(len(idx))
+		w := days[d]
+		slot := w.end.Sub(w.start) / time.Duration(len(idx))
 		// Keep each commit inside its own slot so the order is preserved.
 		maxShift := s.Jitter
 		if limit := slot/2 - time.Minute; maxShift > limit {
 			maxShift = max(limit, 0)
 		}
 		for j, i := range idx {
-			at := start.Add(slot*time.Duration(j) + slot/2).Truncate(time.Second)
+			at := w.start.Add(slot*time.Duration(j) + slot/2).Truncate(time.Second)
 			if maxShift > 0 {
 				at = at.Add(time.Duration(rnd.Int63n(int64(2*maxShift))) - maxShift).Truncate(time.Second)
 			}
 			out[i] = at
 		}
-	}
-	if last := out[n-1]; last.After(now) {
-		return nil, fmt.Errorf("the period reaches into the future (%s); end it no later than today", last.Format("2006-01-02 15:04"))
 	}
 	return out, nil
 }
