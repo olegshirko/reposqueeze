@@ -675,3 +675,33 @@ func TestSplitChanges(t *testing.T) {
 	assert.Equal(t, []FileChange{{"old", ChangeDeleted}, {"new", ChangeAdded}},
 		remoteChangesFromDiff([]gateway.DiffEntry{{OldPath: "old", NewPath: "new", RenamedFile: true}}))
 }
+
+func TestSync_UntrackedFilesDoNotBlock(t *testing.T) {
+	e := newSyncEnv(t, map[string]string{"a.txt": "a"})
+	e.init()
+	e.gl.edit(map[string]string{"a.txt": "a-remote", "new.txt": "from gitlab"})
+	e.write(".idea/workspace.xml", "ide")
+	e.write("bin/app", "binary")
+
+	// Unrelated untracked files are fine.
+	plan := e.sync(SyncInput{DryRun: true}).Plan
+	require.Len(t, plan.RemoteChanges, 2)
+
+	// An untracked file where GitLab adds one is reported by name and kept.
+	e.write("new.txt", "mine")
+	_, err := e.uc.Sync(context.Background(), SyncInput{RepoPath: e.repo})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "untracked local files would be overwritten: new.txt")
+	assert.Equal(t, "mine", e.read("new.txt"))
+	require.NoError(t, os.Remove(filepath.Join(e.repo, "new.txt")))
+
+	e.sync(SyncInput{})
+	assert.Equal(t, "a-remote", e.read("a.txt"))
+	assert.Equal(t, "ide", e.read(".idea/workspace.xml"), "untracked files are left alone")
+
+	// A modified tracked file is named in the error.
+	e.write("a.txt", "dirty")
+	_, err = e.uc.Sync(context.Background(), SyncInput{RepoPath: e.repo})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes in a.txt")
+}

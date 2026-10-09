@@ -180,6 +180,13 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 	if err := checkMessages(uc.git, in.RepoPath, toCheck); err != nil {
 		return res, err
 	}
+	var writes []string
+	for _, st := range steps {
+		writes = append(writes, st.paths...)
+	}
+	if err := checkUntracked(uc.git, in.RepoPath, writes); err != nil {
+		return res, err
+	}
 	if err := ctx.Err(); err != nil {
 		return res, err
 	}

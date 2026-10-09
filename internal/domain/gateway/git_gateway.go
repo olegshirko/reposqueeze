@@ -51,7 +51,8 @@ type CommitOptions struct {
 type SyncGit interface {
 	RevParse(repoPath, ref string) (string, error)
 	CurrentBranch(repoPath string) (string, error)
-	IsClean(repoPath string) (bool, error)
+	// Status lists tracked files with uncommitted changes and untracked files.
+	Status(repoPath string) (WorkingTree, error)
 	GitDir(repoPath string) (string, error)
 	// DiffFiles lists changes between two refs without rename detection
 	// (renames show up as D + A).
@@ -63,6 +64,7 @@ type SyncGit interface {
 	CommitPaths(repoPath, message string, paths []string, opts CommitOptions) (string, error)
 	// RestorePaths returns the given paths to their HEAD state, removing files HEAD does not have.
 	RestorePaths(repoPath string, paths []string) error
+	// StashPush stashes uncommitted changes of tracked files (untracked files stay).
 	StashPush(repoPath, message string) (stashed bool, err error)
 	StashPop(repoPath string) error
 	LogCommits(repoPath, ref string, limit int) ([]CommitInfo, error)
@@ -86,4 +88,10 @@ type MirrorStore interface {
 type TrailerRef struct {
 	Commit string
 	Value  string
+}
+
+// WorkingTree describes uncommitted state of a repository.
+type WorkingTree struct {
+	Changed   []string // tracked files modified, staged, deleted or renamed
+	Untracked []string // files git does not track (ignored files excluded)
 }

@@ -105,12 +105,12 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 	}
 	in.Format = in.Format.Merge(uc.rememberedFormat(in.RepoPath, branch))
 
-	clean, err := uc.git.IsClean(in.RepoPath)
+	wt, err := uc.git.Status(in.RepoPath)
 	if err != nil {
 		return nil, err
 	}
-	if !clean {
-		return nil, fmt.Errorf("working tree has uncommitted changes; commit or stash them first")
+	if len(wt.Changed) > 0 {
+		return nil, uncommittedError(wt.Changed, "commit or stash them first")
 	}
 	head, err := uc.git.RevParse(in.RepoPath, "HEAD")
 	if err != nil {
@@ -143,6 +143,15 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 		messages[i] = in.Format.Apply(replayMessage(c.CommitInfo, project.Name))
 	}
 	if err := checkMessages(uc.git, in.RepoPath, messages); err != nil {
+		return nil, err
+	}
+	var writes []string
+	for _, c := range todo {
+		for _, ch := range c.Changes {
+			writes = append(writes, ch.Path)
+		}
+	}
+	if err := checkUntracked(uc.git, in.RepoPath, writes); err != nil {
 		return nil, err
 	}
 

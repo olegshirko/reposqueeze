@@ -114,9 +114,20 @@ func TestPullCommit_AbortAndDirtyTree(t *testing.T) {
 	assert.Equal(t, head, e.run("rev-parse", "HEAD"))
 	assert.Equal(t, "", e.run("status", "--porcelain"))
 
-	e.write("dirty.txt", "x")
+	// An untracked file at a path the commit creates blocks it, naming the file.
+	e.write("new.txt", "mine")
 	_, err = e.picker().Execute(context.Background(), PullCommitInput{RepoPath: e.repo, Commits: []string{e.gl.head().id}})
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "untracked local files would be overwritten: new.txt")
+	assert.Equal(t, "mine", e.read("new.txt"))
+	require.NoError(t, os.Remove(filepath.Join(e.repo, "new.txt")))
+
+	// A modified tracked file blocks it too, and the error names the file.
+	e.write("f.txt", "dirty\n")
+	_, err = e.picker().Execute(context.Background(), PullCommitInput{RepoPath: e.repo, Commits: []string{e.gl.head().id}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uncommitted changes in f.txt")
+	e.run("checkout", "--", "f.txt")
 
 	_, err = e.picker().Execute(context.Background(), PullCommitInput{RepoPath: e.repo, Commits: []string{"deadbeefdeadbeef"}})
 	require.Error(t, err)

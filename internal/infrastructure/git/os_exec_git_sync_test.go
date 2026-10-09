@@ -34,14 +34,17 @@ func TestSyncGit_DiffCommitRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, branch)
 
-	clean, err := g.IsClean(repo)
+	wt, err := g.Status(repo)
 	require.NoError(t, err)
-	assert.True(t, clean)
+	assert.Empty(t, wt.Changed)
+	assert.Empty(t, wt.Untracked)
 
 	write(t, repo, "dir/new file.txt", "new")
 	write(t, repo, "test.txt", "changed")
-	clean, _ = g.IsClean(repo)
-	assert.False(t, clean)
+	wt, err = g.Status(repo)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"test.txt"}, wt.Changed)
+	assert.Equal(t, []string{"dir/new file.txt"}, wt.Untracked)
 
 	head, err := g.CommitPaths(repo, "msg\n\nReposqueeze-Remote: p/main@abc", []string{"dir/new file.txt", "test.txt"}, gateway.CommitOptions{})
 	require.NoError(t, err)
@@ -74,8 +77,9 @@ func TestSyncGit_DiffCommitRestore(t *testing.T) {
 	write(t, repo, "test.txt", "dirty")
 	write(t, repo, "untracked.txt", "x")
 	require.NoError(t, g.RestorePaths(repo, []string{"test.txt", "untracked.txt"}))
-	clean, _ = g.IsClean(repo)
-	assert.True(t, clean)
+	wt, _ = g.Status(repo)
+	assert.Empty(t, wt.Changed)
+	assert.Empty(t, wt.Untracked)
 
 	// Author and date can be carried over from another commit.
 	_, err = g.CommitPaths(repo, "replayed", nil, gateway.CommitOptions{
@@ -120,11 +124,13 @@ func TestSyncGit_Stash(t *testing.T) {
 	assert.False(t, stashed)
 
 	write(t, repo, "test.txt", "wip")
+	write(t, repo, ".idea/workspace.xml", "ide")
 	stashed, err = g.StashPush(repo, "wip")
 	require.NoError(t, err)
 	assert.True(t, stashed)
-	clean, _ := g.IsClean(repo)
-	assert.True(t, clean)
+	wt, _ := g.Status(repo)
+	assert.Empty(t, wt.Changed)
+	assert.Equal(t, []string{".idea/workspace.xml"}, wt.Untracked, "untracked files are not stashed")
 
 	require.NoError(t, g.StashPop(repo))
 	data, _ := os.ReadFile(filepath.Join(repo, "test.txt"))

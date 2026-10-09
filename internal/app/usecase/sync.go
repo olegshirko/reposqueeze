@@ -350,13 +350,14 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 	res = &SyncResult{DryRun: in.DryRun}
 
 	if !in.DryRun {
-		clean, err := uc.git.IsClean(in.RepoPath)
+		wt, err := uc.git.Status(in.RepoPath)
 		if err != nil {
 			return nil, err
 		}
-		if !clean {
+		// Untracked files do not block a sync; only files it would overwrite do.
+		if len(wt.Changed) > 0 {
 			if !in.Autostash {
-				return nil, fmt.Errorf("working tree has uncommitted changes; commit them or use --autostash")
+				return nil, uncommittedError(wt.Changed, "commit them or use --autostash")
 			}
 			stashed, err := uc.git.StashPush(in.RepoPath, "reposqueeze sync autostash")
 			if err != nil {
@@ -433,6 +434,17 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		}
 	}
 	if err := ctx.Err(); err != nil {
+		return res, err
+	}
+
+	writes := append([]string(nil), res.Merged...)
+	for _, c := range pullSet {
+		writes = append(writes, c.Path)
+	}
+	for _, w := range conflictWrites {
+		writes = append(writes, w.path)
+	}
+	if err := checkUntracked(uc.git, in.RepoPath, writes); err != nil {
 		return res, err
 	}
 

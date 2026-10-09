@@ -42,13 +42,31 @@ func (g *OSExecGitGateway) CurrentBranch(repoPath string) (string, error) {
 	return g.gitString(repoPath, "symbolic-ref", "--short", "HEAD")
 }
 
-// IsClean reports whether the working tree has no staged, unstaged or untracked changes.
-func (g *OSExecGitGateway) IsClean(repoPath string) (bool, error) {
-	out, err := g.gitString(repoPath, "status", "--porcelain")
+// Status lists uncommitted changes of tracked files and untracked files.
+func (g *OSExecGitGateway) Status(repoPath string) (gateway.WorkingTree, error) {
+	out, err := g.git(repoPath, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
-		return false, err
+		return gateway.WorkingTree{}, err
 	}
-	return out == "", nil
+	var wt gateway.WorkingTree
+	entries := strings.Split(string(out), "\x00")
+	for i := 0; i < len(entries); i++ {
+		e := entries[i]
+		if len(e) < 4 {
+			continue
+		}
+		code, path := e[:2], e[3:]
+		switch {
+		case code == "??":
+			wt.Untracked = append(wt.Untracked, path)
+		default:
+			wt.Changed = append(wt.Changed, path)
+			if code[0] == 'R' || code[0] == 'C' {
+				i++ // the next entry is the original path
+			}
+		}
+	}
+	return wt, nil
 }
 
 // GitDir returns the absolute path of the repository's .git directory.
@@ -162,13 +180,13 @@ func (g *OSExecGitGateway) RestorePaths(repoPath string, paths []string) error {
 	return err
 }
 
-// StashPush stashes local changes, including untracked files.
+// StashPush stashes uncommitted changes of tracked files; untracked files stay in place.
 func (g *OSExecGitGateway) StashPush(repoPath, message string) (bool, error) {
-	clean, err := g.IsClean(repoPath)
-	if err != nil || clean {
+	wt, err := g.Status(repoPath)
+	if err != nil || len(wt.Changed) == 0 {
 		return false, err
 	}
-	if _, err := g.git(repoPath, "stash", "push", "--include-untracked", "-m", message); err != nil {
+	if _, err := g.git(repoPath, "stash", "push", "-m", message); err != nil {
 		return false, err
 	}
 	return true, nil
