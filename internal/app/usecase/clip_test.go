@@ -135,7 +135,7 @@ func TestClip_PushPullBetweenMacs(t *testing.T) {
 	workUC := clipUC(reg, work)
 
 	_, err := workUC.Pull(context.Background(), ClipConfig{KeyFile: key})
-	require.Error(t, err, "nothing pushed yet")
+	require.ErrorIs(t, err, ErrNoClip)
 
 	// The first push creates a private project.
 	res, err := homeUC.Push(context.Background(), ClipConfig{KeyFile: key})
@@ -282,7 +282,7 @@ func TestClip_WatchPushesOnDoubleCopyAndPullsFromOthers(t *testing.T) {
 
 // clipUC never touches ~/.clipsync: the machine id is fixed per clipboard.
 func clipUC(reg ClipGitLab, cb *fakeClipboard) *ClipUseCase {
-	uc := NewClipUseCase(reg, cb, newTestLogger())
+	uc := NewClipUseCase(NewPackageClipStore(reg, ""), cb, newTestLogger())
 	uc.machineID = func() string { return fmt.Sprintf("test-%p", cb) }
 	return uc
 }

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -34,4 +35,17 @@ type GenericPackages interface {
 	// (nil when the package does not exist).
 	ListPackageFiles(projectID int, pkg, version string) ([]PackageFile, error)
 	DeletePackageFile(projectID, packageID, fileID int) error
+}
+
+// ErrNoClip means no clipboard has been pushed yet.
+var ErrNoClip = errors.New("nothing pushed yet")
+
+// ClipStore keeps the single, latest encrypted clipboard.
+type ClipStore interface {
+	// Put replaces the stored clipboard.
+	Put(ctx context.Context, blob, meta []byte) error
+	// Get returns the stored clipboard, or ErrNoClip.
+	Get(ctx context.Context) (blob, meta []byte, err error)
+	// Version is a cheap token that changes with every Put ("" if empty).
+	Version(ctx context.Context) (string, error)
 }

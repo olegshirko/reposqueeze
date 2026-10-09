@@ -23,7 +23,7 @@ type CLIController struct {
 	pushBranchUseCase       *usecase.PushBranchUseCase
 	syncUseCase             *usecase.SyncUseCase
 	pullCommitUseCase       *usecase.PullCommitUseCase
-	clipUseCase             *usecase.ClipUseCase
+	clipDeps                ClipDeps
 	gitlabGateway           gateway.GitLabGateway
 	logger                  logger.Logger
 }

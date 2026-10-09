@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/olegshirko/reposqueeze/internal/app/clipsetup"
 	"github.com/olegshirko/reposqueeze/internal/app/controller"
 	"github.com/olegshirko/reposqueeze/internal/app/tui"
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
@@ -24,7 +26,7 @@ func run(args []string) int {
 	// 0. Read configuration
 	gitlabToken := os.Getenv("GITLAB_TOKEN")
 	gitlabBaseURL := os.Getenv("GITLAB_BASE_URL")
-	if gitlabToken == "" && !isHelp(args) {
+	if gitlabToken == "" && !isHelp(args) && !clipOverSSH(args) {
 		fmt.Fprintln(os.Stderr, "GITLAB_TOKEN environment variable is not set.")
 		fmt.Fprintln(os.Stderr, "Create a personal access token with the 'api' scope and run: export GITLAB_TOKEN=glpat-...")
 		return controller.ExitUsage
@@ -65,10 +67,34 @@ func run(args []string) int {
 	// 4. Create an instance of the controller, injecting the use case (Interface Adapters)
 	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, cherryPickCommitUseCase, pushBranchUseCase, syncUseCase, pullCommitUseCase, gitlabGateway, log)
 
-	cliController.SetClipUseCase(usecase.NewClipUseCase(gitlabGateway, clipboard.NewClipsync(clipboard.DefaultBin()), log))
+	cliController.SetClipDeps(func(ctx context.Context, o clipsetup.Options) (*usecase.ClipUseCase, string, error) {
+		o.BaseURL = gitlabBaseURL
+		if gitlabToken != "" {
+			o.API = gitlabGateway
+		}
+		store, where, err := clipsetup.Store(ctx, o)
+		if err != nil {
+			return nil, "", err
+		}
+		return usecase.NewClipUseCase(store, clipboard.NewClipsync(clipboard.DefaultBin()), log), where, nil
+	})
 
 	// 5. Run the controller with command-line arguments
 	return cliController.Run(args)
+}
+
+// clipOverSSH reports a clip command using the SSH transport, which needs no token.
+func clipOverSSH(args []string) bool {
+	if len(args) == 0 || args[0] != "clip" {
+		return false
+	}
+	for i, a := range args {
+		if a == "--transport=api" || a == "-transport=api" ||
+			((a == "--transport" || a == "-transport") && i+1 < len(args) && args[i+1] == "api") {
+			return false
+		}
+	}
+	return true
 }
 
 func isHelp(args []string) bool {

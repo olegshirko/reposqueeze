@@ -6,25 +6,20 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/olegshirko/reposqueeze/internal/app/clipsetup"
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/notify"
 )
 
-// SetClipUseCase enables the clip command.
-func (c *CLIController) SetClipUseCase(uc *usecase.ClipUseCase) {
-	c.clipUseCase = uc
-}
+// ClipDeps builds what the clip command needs, once options are known.
+type ClipDeps func(ctx context.Context, o clipsetup.Options) (*usecase.ClipUseCase, string, error)
 
-func defaultClipKey() string {
-	if p := os.Getenv("REPOSQUEEZE_CLIP_KEY"); p != "" {
-		return p
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".clipsync", "key")
+// SetClipDeps enables the clip command.
+func (c *CLIController) SetClipDeps(deps ClipDeps) {
+	c.clipDeps = deps
 }
 
 func (c *CLIController) handleClip(args []string) error {
@@ -37,7 +32,9 @@ func (c *CLIController) handleClip(args []string) error {
 	fs := flag.NewFlagSet("clip "+sub, flag.ExitOnError)
 	setFlagSetUsage(fs)
 	project := fs.String("project", usecase.DefaultClipProject, "Private GitLab project that holds the shared clipboard")
-	key := fs.String("key", defaultClipKey(), "Shared key file, the same on both Macs (env REPOSQUEEZE_CLIP_KEY)")
+	key := fs.String("key", clipsetup.KeyFile(), "Shared key file, the same on both Macs (env REPOSQUEEZE_CLIP_KEY)")
+	transport := fs.String("transport", clipsetup.TransportSSH, "ssh: git over your SSH key, no token; api: GitLab package registry, needs GITLAB_TOKEN")
+	remote := fs.String("remote", "", "ssh: git remote to use (default: git@<gitlab host>:<your user>/<project>.git, detected)")
 	quiet := fs.Bool("quiet", false, "No macOS notifications")
 	push := fs.Bool("push", true, "watch: push when the same thing is copied twice (⌘C ⌘C)")
 	pull := fs.Bool("pull", false, "watch: put clipboards pushed from the other Mac into this one automatically")
@@ -45,7 +42,7 @@ func (c *CLIController) handleClip(args []string) error {
 	interval := fs.Duration("interval", 5*time.Second, "watch: how often to check GitLab for a new clipboard")
 	fs.Parse(rest)
 
-	cfg := usecase.ClipConfig{Project: *project, KeyFile: *key}
+	cfg := usecase.ClipConfig{KeyFile: *key}
 	tell := func(text string) {
 		fmt.Println(text)
 		if !*quiet {
@@ -55,9 +52,15 @@ func (c *CLIController) handleClip(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	uc, where, err := c.clipDeps(ctx, clipsetup.Options{Transport: *transport, Project: *project, Remote: *remote})
+	if err != nil {
+		tell("clipboard store unavailable: " + err.Error())
+		return err
+	}
+
 	switch sub {
 	case "push":
-		res, err := c.clipUseCase.Push(ctx, cfg)
+		res, err := uc.Push(ctx, cfg)
 		if err != nil {
 			tell("not sent: " + err.Error())
 			return err
@@ -66,7 +69,7 @@ func (c *CLIController) handleClip(args []string) error {
 		return nil
 
 	case "pull":
-		res, err := c.clipUseCase.Pull(ctx, cfg)
+		res, err := uc.Pull(ctx, cfg)
 		if err != nil {
 			tell("not received: " + err.Error())
 			return err
@@ -85,8 +88,8 @@ func (c *CLIController) handleClip(args []string) error {
 			}
 			what += fmt.Sprintf("pull every %s", *interval)
 		}
-		c.logger.Infof("Watching the clipboard (%s); Ctrl+C to stop", what)
-		return c.clipUseCase.Watch(ctx, cfg, usecase.ClipWatchOptions{
+		c.logger.Infof("Watching the clipboard (%s) via %s; Ctrl+C to stop", what, where)
+		return uc.Watch(ctx, cfg, usecase.ClipWatchOptions{
 			Push: *push, Window: *window, Pull: *pull, Interval: *interval,
 			OnEvent: func(kind string, res *usecase.ClipResult, err error) {
 				switch {
@@ -111,5 +114,6 @@ func (c *CLIController) printClipUsage() {
 	fmt.Println("  push    send this Mac's clipboard (text, images, files) to GitLab, encrypted")
 	fmt.Println("  pull    replace this Mac's clipboard with the last one sent")
 	fmt.Println("  watch   run in the background: send when you press ⌘C twice; with --pull also receive automatically")
-	fmt.Println("Options: --project clipboard --key ~/.clipsync/key --quiet --push=false --pull --window 1s --interval 5s")
+	fmt.Println("Options: --transport ssh|api --remote <git url> --project clipboard --key ~/.clipsync/key")
+	fmt.Println("         --quiet --push=false --pull --window 1s --interval 5s")
 }

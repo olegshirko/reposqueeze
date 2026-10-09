@@ -158,7 +158,9 @@ reposqueeze sync . --replay --from 2026-09-14 --to 2026-09-25
 
 ## Общий буфер обмена между маками (через GitLab)
 
-Буфер переносится целиком (текст, картинки, RTF, файлы и папки) хелпером `clipsync`, шифруется общим ключом и хранится в **Generic Package Registry** приватного проекта `clipboard`. В GitLab попадает только шифротекст, хранится одна последняя копия (старые удаляются сразу), истории коммитов нет.
+Буфер переносится целиком (текст, картинки, RTF, файлы и папки) хелпером `clipsync` и шифруется общим ключом. В GitLab попадает только шифротекст и хранится одна последняя копия.
+
+По умолчанию буфер ходит **через git по вашему SSH-ключу — токен не нужен**: приватный проект `git@gitlab.com:<вы>/clipboard.git`, ветка `clip`, в которой всегда ровно один коммит (каждая отправка делает `push --force`, история не копится). Пользователь определяется через `ssh -T` и запоминается в `~/.clipsync/remote`; проект создаётся сам при первой отправке. Если SSH недоступен — `--transport api`: Generic Package Registry проекта по `GITLAB_TOKEN`.
 
 ```bash
 reposqueeze clip push            # отправить буфер этого мака
@@ -174,14 +176,11 @@ reposqueeze clip watch --pull    # ...и самому принимать коп�
 1. Собрать reposqueeze и положить в `~/bin`: `make build && cp bin/reposqueeze ~/bin/`.
 2. Собрать хелпер: `make clipsync` (нужны Xcode Command Line Tools). Он ставится в `~/.clipsync/bin/clipsync`; прежние команды `export`/`import` не изменились, добавился режим `watch`.
 3. Скопировать **один и тот же** ключ `~/.clipsync/key` на оба мака — не через GitLab.
-4. Положить токен GitLab в связку ключей (команда спросит токен):
-   ```bash
-   security add-generic-password -a "$USER" -s reposqueeze-gitlab -w
-   ```
+4. Проверить SSH: `ssh -T git@gitlab.com` должен ответить «Welcome to GitLab». Если на работе закрыт порт 22, в `~/.ssh/config` для `gitlab.com` укажите `Hostname altssh.gitlab.com` и `Port 443`.
 5. Фоновое наблюдение при входе в систему — LaunchAgent из `tools/launchd/` (инструкция в файле). Для автоприёма допишите в нём флаг `--pull`.
 6. Горячие клавиши Raycast — скрипты из `tools/raycast/`: отправить, забрать, забрать и сразу вставить (удобно повесить на ⌥⌘V). Если GitLab свой, раскомментируйте в них `GITLAB_BASE_URL`.
 
-В проекте должен быть включён Package Registry (Settings → General → Visibility, project features); на gitlab.com он включён по умолчанию. Ключ и проект можно поменять: `--key` / `REPOSQUEEZE_CLIP_KEY`, `--project`; путь к хелперу — `REPOSQUEEZE_CLIPSYNC`.
+Ключ, проект и адрес можно поменять: `--key` / `REPOSQUEEZE_CLIP_KEY`, `--project`, `--remote`; путь к хелперу — `REPOSQUEEZE_CLIPSYNC`. Для `--transport api` в проекте должен быть включён Package Registry.
 
 ## Остальные команды
 

@@ -6,9 +6,7 @@
 # @raycast.packageName Clipboard Sync
 # @raycast.description Забрать буфер с другого мака и сразу вставить (назначьте, например, ⌥⌘V)
 
-GITLAB_TOKEN=$(/usr/bin/security find-generic-password -a "$USER" -s reposqueeze-gitlab -w 2>/dev/null) \
-  || { echo "нет токена в связке ключей (reposqueeze-gitlab)"; exit 1; }
-export GITLAB_TOKEN
+# Буфер ходит через git по SSH-ключу (токен не нужен). Свой GitLab:
 # export GITLAB_BASE_URL=https://gitlab.example.com
 
 if "$HOME/bin/reposqueeze" clip pull --quiet >/dev/null 2>&1; then

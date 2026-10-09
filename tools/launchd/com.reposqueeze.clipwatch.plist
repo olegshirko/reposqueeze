@@ -20,7 +20,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>export GITLAB_TOKEN=$(/usr/bin/security find-generic-password -a "$USER" -s reposqueeze-gitlab -w) &amp;&amp; exec "$HOME/bin/reposqueeze" clip watch</string>
+    <string>exec "$HOME/bin/reposqueeze" clip watch</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,41 +12,25 @@ import (
 	"sync"
 	"time"
 
-	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 	"github.com/olegshirko/reposqueeze/internal/pkg/opensslenc"
 )
 
-// Clip defaults.
-const (
-	DefaultClipProject = "clipboard"
-	clipPackage        = "clipboard"
-	clipVersion        = "latest"
-	clipFile           = "clip.bin"
-	clipMetaFile       = "meta.json"
-	maxClipBytes       = 64 << 20
-)
+// DefaultClipProject is the GitLab project that holds the shared clipboard.
+const DefaultClipProject = "clipboard"
 
-// ClipGitLab is what the clipboard needs from GitLab: a private project and
-// its generic package registry.
-type ClipGitLab interface {
-	FindProjectByName(name string) (*entity.Project, error)
-	CreatePrivateProject(name string) (*entity.Project, error)
-	gateway.GenericPackages
-}
+const maxClipBytes = 64 << 20
 
-// ClipConfig says where the shared clipboard lives.
+// ErrNoClip means nothing has been pushed yet.
+var ErrNoClip = gateway.ErrNoClip
+
+// ClipStore keeps the single, latest encrypted clipboard.
+type ClipStore = gateway.ClipStore
+
+// ClipConfig holds the shared secret.
 type ClipConfig struct {
-	Project string // private GitLab project, created on first push
-	KeyFile string // shared secret, the same file on both Macs
-}
-
-func (c ClipConfig) withDefaults() ClipConfig {
-	if c.Project == "" {
-		c.Project = DefaultClipProject
-	}
-	return c
+	KeyFile string // the same file on both Macs
 }
 
 // clipMeta travels next to the encrypted clipboard.
@@ -63,15 +46,13 @@ type ClipResult struct {
 	Summary string    // what clipsync packed or restored
 	From    string    // host that pushed it
 	At      time.Time // when it was pushed
-	Warning string    // non-fatal problem, e.g. old copies not cleaned up
 }
 
-// ClipUseCase shares the clipboard between machines through GitLab: the
-// packed clipboard is encrypted with a shared key and kept as the only file
-// of a generic package in a private project. GitLab never sees plaintext and
-// keeps no history of copies.
+// ClipUseCase shares the clipboard between machines: the packed clipboard
+// is encrypted with a shared key and kept in a ClipStore, which only ever
+// sees ciphertext and holds just the latest copy.
 type ClipUseCase struct {
-	gitlab    ClipGitLab
+	store     ClipStore
 	clipboard gateway.Clipboard
 	logger    logger.Logger
 	hostname  func() (string, error)
@@ -80,8 +61,8 @@ type ClipUseCase struct {
 }
 
 // NewClipUseCase creates a ClipUseCase.
-func NewClipUseCase(gitlab ClipGitLab, clipboard gateway.Clipboard, log logger.Logger) *ClipUseCase {
-	return &ClipUseCase{gitlab: gitlab, clipboard: clipboard, logger: log,
+func NewClipUseCase(store ClipStore, clipboard gateway.Clipboard, log logger.Logger) *ClipUseCase {
+	return &ClipUseCase{store: store, clipboard: clipboard, logger: log,
 		hostname: os.Hostname, machineID: defaultMachineID, now: time.Now}
 }
 
@@ -95,7 +76,6 @@ func (uc *ClipUseCase) password(cfg ClipConfig) (string, error) {
 
 // Push sends the current clipboard.
 func (uc *ClipUseCase) Push(ctx context.Context, cfg ClipConfig) (*ClipResult, error) {
-	cfg = cfg.withDefaults()
 	pass, err := uc.password(cfg)
 	if err != nil {
 		return nil, err
@@ -111,84 +91,32 @@ func (uc *ClipUseCase) Push(ctx context.Context, cfg ClipConfig) (*ClipResult, e
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	project, err := uc.gitlab.FindProjectByName(cfg.Project)
-	if err != nil {
-		return nil, err
-	}
-	if project == nil {
-		uc.logger.Infof("Creating private GitLab project %q for the clipboard", cfg.Project)
-		if project, err = uc.gitlab.CreatePrivateProject(cfg.Project); err != nil {
-			return nil, err
-		}
-	}
-
 	host, _ := uc.hostname()
 	res := &ClipResult{Summary: summary, From: host, At: uc.now()}
 	meta, err := json.Marshal(clipMeta{Host: host, Machine: uc.machineID(), Summary: summary, At: res.At})
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.gitlab.UploadPackageFile(project.ID, clipPackage, clipVersion, clipFile, blob); err != nil {
-		return nil, fmt.Errorf("upload to GitLab failed: %w", err)
-	}
-	if err := uc.gitlab.UploadPackageFile(project.ID, clipPackage, clipVersion, clipMetaFile, meta); err != nil {
-		return nil, fmt.Errorf("upload to GitLab failed: %w", err)
-	}
-	if err := uc.prune(project.ID); err != nil {
-		res.Warning = "old copies were not removed: " + err.Error()
-		uc.logger.Warn(res.Warning)
+	if err := uc.store.Put(ctx, blob, meta); err != nil {
+		return nil, fmt.Errorf("upload failed: %w", err)
 	}
 	return res, nil
 }
 
-// prune keeps only the newest copy of each file, so GitLab holds one clipboard.
-func (uc *ClipUseCase) prune(projectID int) error {
-	files, err := uc.gitlab.ListPackageFiles(projectID, clipPackage, clipVersion)
-	if err != nil {
-		return err
-	}
-	newest := map[string]int{}
-	for _, f := range files {
-		if f.ID > newest[f.FileName] {
-			newest[f.FileName] = f.ID
-		}
-	}
-	var errs []error
-	for _, f := range files {
-		if f.ID != newest[f.FileName] {
-			if err := uc.gitlab.DeletePackageFile(projectID, f.PackageID, f.ID); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
-	return errors.Join(errs...)
-}
-
 // Pull replaces the clipboard with the last pushed one.
 func (uc *ClipUseCase) Pull(ctx context.Context, cfg ClipConfig) (*ClipResult, error) {
-	cfg = cfg.withDefaults()
 	pass, err := uc.password(cfg)
 	if err != nil {
 		return nil, err
 	}
-	project, err := uc.gitlab.FindProjectByName(cfg.Project)
+	blob, meta, err := uc.store.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if project == nil {
-		return nil, fmt.Errorf("nothing pushed yet: GitLab project %q does not exist", cfg.Project)
-	}
-	blob, err := uc.gitlab.DownloadPackageFile(project.ID, clipPackage, clipVersion, clipFile)
-	if err != nil {
-		return nil, fmt.Errorf("nothing pushed yet to %q: %w", cfg.Project, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
+	return uc.apply(pass, blob, parseMeta(meta))
+}
+
+func (uc *ClipUseCase) apply(pass string, blob []byte, meta clipMeta) (*ClipResult, error) {
 	payload, err := opensslenc.Decrypt(pass, blob)
 	if err != nil {
 		return nil, err
@@ -197,32 +125,13 @@ func (uc *ClipUseCase) Pull(ctx context.Context, cfg ClipConfig) (*ClipResult, e
 	if err != nil {
 		return nil, fmt.Errorf("%w (is the key file the same on both Macs?)", err)
 	}
-
-	res := &ClipResult{Summary: summary}
-	if data, err := uc.gitlab.DownloadPackageFile(project.ID, clipPackage, clipVersion, clipMetaFile); err == nil {
-		var meta clipMeta
-		if json.Unmarshal(data, &meta) == nil {
-			res.From, res.At = meta.Host, meta.At
-		}
-	}
-	return res, nil
+	return &ClipResult{Summary: summary, From: meta.Host, At: meta.At}, nil
 }
 
-// latest returns the metadata of the last pushed clipboard (nil if none).
-func (uc *ClipUseCase) latest(cfg ClipConfig) (*clipMeta, error) {
-	project, err := uc.gitlab.FindProjectByName(cfg.Project)
-	if err != nil || project == nil {
-		return nil, err
-	}
-	data, err := uc.gitlab.DownloadPackageFile(project.ID, clipPackage, clipVersion, clipMetaFile)
-	if err != nil {
-		return nil, nil // nothing pushed yet (or not readable): treat as empty
-	}
-	var meta clipMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, nil
-	}
-	return &meta, nil
+func parseMeta(data []byte) clipMeta {
+	var m clipMeta
+	_ = json.Unmarshal(data, &m)
+	return m
 }
 
 // ClipWatchOptions selects what the watcher does.
@@ -230,7 +139,7 @@ type ClipWatchOptions struct {
 	Push     bool          // push when the same thing is copied twice (⌘C ⌘C)
 	Window   time.Duration // max time between the two copies
 	Pull     bool          // put clipboards pushed by other machines into this one
-	Interval time.Duration // how often to check GitLab for a new clipboard
+	Interval time.Duration // how often to check for a new clipboard
 	// OnEvent reports what happened (for logs and notifications).
 	OnEvent func(kind string, res *ClipResult, err error)
 }
@@ -238,9 +147,12 @@ type ClipWatchOptions struct {
 // Watch runs until ctx is done: it pushes on double copy and/or pulls
 // clipboards pushed from other machines.
 func (uc *ClipUseCase) Watch(ctx context.Context, cfg ClipConfig, opts ClipWatchOptions) error {
-	cfg = cfg.withDefaults()
-	if _, err := uc.password(cfg); err != nil {
+	pass, err := uc.password(cfg)
+	if err != nil {
 		return err
+	}
+	if !opts.Push && !opts.Pull {
+		return fmt.Errorf("nothing to watch: enable pushing on double copy, pulling, or both")
 	}
 	if opts.Window <= 0 {
 		opts.Window = time.Second
@@ -272,10 +184,7 @@ func (uc *ClipUseCase) Watch(ctx context.Context, cfg ClipConfig, opts ClipWatch
 	if opts.Pull {
 		go func() {
 			// Only clipboards pushed after the watcher started are pulled.
-			var seen time.Time
-			if m, _ := uc.latest(cfg); m != nil {
-				seen = m.At
-			}
+			seen, _ := uc.store.Version(ctx)
 			t := time.NewTicker(opts.Interval)
 			defer t.Stop()
 			for {
@@ -285,25 +194,16 @@ func (uc *ClipUseCase) Watch(ctx context.Context, cfg ClipConfig, opts ClipWatch
 					return
 				case <-t.C:
 				}
-				m, err := uc.latest(cfg)
-				if err != nil || m == nil || !m.At.After(seen) {
+				v, err := uc.store.Version(ctx)
+				if err != nil || v == "" || v == seen {
 					continue
 				}
-				seen = m.At
-				if m.Machine == self {
-					continue // our own push
-				}
-				mu.Lock()
-				res, err := uc.Pull(ctx, cfg)
-				mu.Unlock()
-				report("pull", res, err)
+				seen = v
+				uc.pullNew(ctx, pass, self, &mu, report)
 			}
 		}()
 	}
 
-	if !opts.Push && !opts.Pull {
-		return fmt.Errorf("nothing to watch: enable pushing on double copy, pulling, or both")
-	}
 	select {
 	case <-ctx.Done():
 		return nil
@@ -313,6 +213,24 @@ func (uc *ClipUseCase) Watch(ctx context.Context, cfg ClipConfig, opts ClipWatch
 		}
 		return err
 	}
+}
+
+// pullNew applies the stored clipboard unless this machine pushed it.
+func (uc *ClipUseCase) pullNew(ctx context.Context, pass, self string, mu *sync.Mutex,
+	report func(string, *ClipResult, error)) {
+	mu.Lock()
+	defer mu.Unlock()
+	blob, meta, err := uc.store.Get(ctx)
+	if err != nil {
+		report("pull", nil, err)
+		return
+	}
+	m := parseMeta(meta)
+	if m.Machine == self {
+		return // our own push
+	}
+	res, err := uc.apply(pass, blob, m)
+	report("pull", res, err)
 }
 
 // Describe renders a result for humans, e.g. "1 item from mac-home, 3 min ago".
