@@ -3,6 +3,7 @@ package usecase
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,8 +26,20 @@ import (
 type fakeCommit struct {
 	id      string
 	message string
+	author  string
+	date    string
 	parent  string
 	files   map[string]string
+}
+
+func (c *fakeCommit) info() gateway.CommitInfo {
+	title, _, _ := strings.Cut(c.message, "\n")
+	info := gateway.CommitInfo{ID: c.id, Title: title, Message: c.message, AuthorName: c.author,
+		AuthorEmail: strings.ToLower(strings.ReplaceAll(c.author, " ", ".")) + "@example.com", AuthoredDate: c.date}
+	if c.parent != "" {
+		info.ParentIDs = []string{c.parent}
+	}
+	return info
 }
 
 // fakeGitLab is an in-memory GitLab project with one linear branch.
@@ -51,7 +64,8 @@ func (f *fakeGitLab) head() *fakeCommit { return f.commits[len(f.commits)-1] }
 
 func (f *fakeGitLab) addCommit(msg string, files map[string]string) *fakeCommit {
 	f.seq++
-	c := &fakeCommit{id: fmt.Sprintf("%040x", 0xabc000+f.seq), message: msg, files: files}
+	c := &fakeCommit{id: fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprint("fake commit ", f.seq)))), message: msg, files: files,
+		author: "Web User", date: fmt.Sprintf("2024-01-%02dT10:00:00Z", f.seq)}
 	if len(f.commits) > 0 {
 		c.parent = f.head().id
 	}
@@ -62,6 +76,11 @@ func (f *fakeGitLab) addCommit(msg string, files map[string]string) *fakeCommit 
 // edit creates a commit on GitLab as if someone pushed through the web UI.
 // An empty string deletes the file.
 func (f *fakeGitLab) edit(changes map[string]string) {
+	f.editAs("Web User", "web edit", changes)
+}
+
+// editAs is edit with a given author and commit message.
+func (f *fakeGitLab) editAs(author, msg string, changes map[string]string) {
 	files := copyFiles(f.head().files)
 	for p, c := range changes {
 		if c == "" {
@@ -70,7 +89,8 @@ func (f *fakeGitLab) edit(changes map[string]string) {
 			files[p] = c
 		}
 	}
-	f.addCommit("web edit", files)
+	c := f.addCommit(msg, files)
+	c.author = author
 }
 
 func copyFiles(m map[string]string) map[string]string {
@@ -148,7 +168,31 @@ func (f *fakeGitLab) GetCommits(projectID int, ref string, limit int) ([]gateway
 		if len(out) == 0 && c != start {
 			continue
 		}
-		out = append(out, gateway.CommitInfo{ID: c.id, Message: c.message})
+		out = append(out, c.info())
+	}
+	return out, nil
+}
+
+func (f *fakeGitLab) ListCommitsAfter(projectID int, ref, after string, max int) ([]gateway.CommitInfo, error) {
+	head := f.find(ref)
+	if head == nil {
+		return nil, fmt.Errorf("unknown ref %s", ref)
+	}
+	var out []gateway.CommitInfo
+	found := false
+	for _, c := range f.commits {
+		if found {
+			out = append(out, c.info())
+		}
+		if c.id == after || (len(after) >= 7 && strings.HasPrefix(c.id, after)) {
+			found = true
+		}
+		if c == head {
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("commit %s is not on %s", after, ref)
 	}
 	return out, nil
 }

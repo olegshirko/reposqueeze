@@ -22,6 +22,7 @@ type CLIController struct {
 	cherryPickCommitUseCase *usecase.CherryPickCommitUseCase
 	pushBranchUseCase       *usecase.PushBranchUseCase
 	syncUseCase             *usecase.SyncUseCase
+	pullCommitUseCase       *usecase.PullCommitUseCase
 	gitlabGateway           gateway.GitLabGateway
 	logger                  logger.Logger
 }
@@ -36,6 +37,7 @@ func NewCLIController(
 	cherryPickCommitUseCase *usecase.CherryPickCommitUseCase,
 	pushBranchUseCase *usecase.PushBranchUseCase,
 	syncUseCase *usecase.SyncUseCase,
+	pullCommitUseCase *usecase.PullCommitUseCase,
 	gitlabGateway gateway.GitLabGateway,
 	log logger.Logger,
 ) *CLIController {
@@ -48,6 +50,7 @@ func NewCLIController(
 		cherryPickCommitUseCase: cherryPickCommitUseCase,
 		pushBranchUseCase:       pushBranchUseCase,
 		syncUseCase:             syncUseCase,
+		pullCommitUseCase:       pullCommitUseCase,
 		gitlabGateway:           gitlabGateway,
 		logger:                  log,
 	}
@@ -102,6 +105,8 @@ func (c *CLIController) Run(args []string) int {
 		err = c.handleSync(remainingArgs)
 	case "sync-log":
 		err = c.handleSyncLog(remainingArgs)
+	case "pull-commit":
+		err = c.handlePullCommit(remainingArgs)
 	case "help", "-h", "--help":
 		c.printUsage()
 		return ExitOK
@@ -425,12 +430,21 @@ func (c *CLIController) printUsage() {
 	fmt.Println("Two-way sync (a mirror = local branch <-> GitLab branch, with a journal of matching commits):")
 	fmt.Println("  sync-init           <path> [--remote-branch <name>] [--local-branch <name>] [--local-sha <sha>] [--remote-sha <sha>] [--name <mirror>] [--recover] [--force]")
 	fmt.Println("                        Records which local commit corresponds to which GitLab commit (default: both heads).")
-	fmt.Println("  status              <path> [--mirror <name>]")
+	fmt.Println("  status              <path> [--mirror <name>] [--replay]")
 	fmt.Println("                        Shows what sync would pull, push and merge.")
-	fmt.Println("  sync                <path> [--mirror <name>] [--strategy merge|local|remote|abort] [--autostash] [--dry-run] [--message <msg>]")
+	fmt.Println("  sync                <path> [--mirror <name>] [--strategy merge|local|remote|abort] [--autostash] [--dry-run] [--message <msg>] [--replay] [--type <fix|feat|...>] [--task <TASK-1>]")
 	fmt.Println("                        Pulls GitLab changes, pushes local commits, 3-way merges files changed on both sides.")
+	fmt.Println("                        --replay: one local commit per GitLab commit, keeping message, author and date.")
 	fmt.Println("  sync-log            <path> [--mirror <name>]")
 	fmt.Println("                        Prints the local <-> GitLab commit correspondence journal.")
+	fmt.Println("")
+	fmt.Println("Selected GitLab commits:")
+	fmt.Println("  pull-commit         <path> --list [--branch-name <name>] [--limit <n>]")
+	fmt.Println("                        Lists GitLab commits to choose from (* = already brought in).")
+	fmt.Println("  pull-commit         <path> --commit <sha>[,<sha>...] [--strategy merge|local|remote|abort] [--type <type>] [--task <TASK-1>]")
+	fmt.Println("                        Brings the chosen commits into the current branch, one local commit each (oldest first).")
+	fmt.Println("")
+	fmt.Println("  --type/--task make local commit messages look like \"fix: <title> TASK-1\"; sync remembers them per mirror.")
 	fmt.Println("")
 	fmt.Println("  tui                 Interactive mode")
 }

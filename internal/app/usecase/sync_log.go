@@ -23,6 +23,9 @@ func MirrorLogLines(m entity.Mirror) []string {
 		if len(j.Conflicts) > 0 {
 			notes += fmt.Sprintf("conflicts: %v ", j.Conflicts)
 		}
+		if len(j.Replayed) > 0 {
+			notes += fmt.Sprintf("replayed %d commit(s) ", len(j.Replayed))
+		}
 		if j.RemoteMoved {
 			notes += "gitlab moved during sync"
 		}
@@ -35,6 +38,15 @@ func MirrorLogLines(m entity.Mirror) []string {
 		m.Name, m.LocalBranch, m.ProjectName, m.RemoteBranch, m.ProjectID)}
 	for _, l := range bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n")) {
 		lines = append(lines, string(l))
+	}
+	for _, j := range m.Journal {
+		if len(j.Replayed) == 0 {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  replayed %s:", j.At.Local().Format("2006-01-02 15:04")))
+		for _, p := range j.Replayed {
+			lines = append(lines, fmt.Sprintf("    gitlab %s -> local %s  %s", short(p.RemoteSHA), short(p.LocalSHA), p.Title))
+		}
 	}
 	if m.PendingMerge != nil {
 		lines = append(lines, fmt.Sprintf("  pending conflicts: %v", m.PendingMerge.Files))

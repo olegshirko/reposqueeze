@@ -40,6 +40,10 @@ func serveFakeGitLab(t *testing.T, f *fakeGitLab) *httptest.Server {
 
 		case path == prefix+"commits" && r.Method == http.MethodGet:
 			limit, _ := strconv.Atoi(q.Get("per_page"))
+			if q.Get("page") != "" && q.Get("page") != "1" {
+				writeJSON(w, 200, []gateway.CommitInfo{})
+				return
+			}
 			commits, err := f.GetCommits(f.project.ID, q.Get("ref_name"), limit)
 			if err != nil {
 				writeJSON(w, 404, map[string]string{"message": err.Error()})
@@ -118,5 +122,26 @@ func TestSync_OverHTTPGateway(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, res.Pulled)
 	require.Equal(t, 2, res.Pushed)
+	e.assertInSync()
+}
+
+func TestReplay_OverHTTPGateway(t *testing.T) {
+	e := newSyncEnv(t, map[string]string{"a.txt": "a", "dir/b.txt": "b"})
+	srv := serveFakeGitLab(t, e.gl)
+	defer srv.Close()
+
+	gl := gitlab.NewHTTPGitLabGateway("secret-token-xyz", newTestLogger()).WithBaseURL(srv.URL)
+	e.uc = NewSyncUseCase(e.git, gl, state.NewFileStore(e.git), newTestLogger())
+	e.init()
+
+	e.gl.editAs("Alice Smith", "first", map[string]string{"dir/b.txt": "b1"})
+	e.gl.editAs("Bob Jones", "second", map[string]string{"a.txt": ""})
+	e.write("local.txt", "l")
+	e.commit("local")
+
+	res, err := e.uc.Sync(context.Background(), SyncInput{RepoPath: e.repo, Replay: true})
+	require.NoError(t, err)
+	require.Len(t, res.Replayed, 2)
+	require.Equal(t, "Bob Jones", e.run("log", "-1", "--format=%an", res.Replayed[1].LocalSHA))
 	e.assertInSync()
 }

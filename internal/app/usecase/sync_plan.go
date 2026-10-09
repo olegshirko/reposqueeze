@@ -29,6 +29,12 @@ type Conflict struct {
 	Remote string // change kind on the GitLab side
 }
 
+// RemoteCommit is a GitLab commit with the files it changed (used by replay).
+type RemoteCommit struct {
+	gateway.CommitInfo
+	Changes []FileChange
+}
+
 // SyncPlan describes what a sync would transfer.
 type SyncPlan struct {
 	Mirror        entity.Mirror
@@ -39,11 +45,14 @@ type SyncPlan struct {
 	RemoteChanges []FileChange // changed only on GitLab -> pulled
 	Conflicts     []Conflict   // changed on both sides
 	PendingFiles  []string     // left unresolved by the previous sync
+	// RemoteCommits are the GitLab commits since the last sync, oldest first.
+	// Filled only when replay is requested.
+	RemoteCommits []RemoteCommit
 }
 
 // Empty reports whether there is nothing to transfer.
 func (p *SyncPlan) Empty() bool {
-	return len(p.LocalChanges) == 0 && len(p.RemoteChanges) == 0 && len(p.Conflicts) == 0
+	return len(p.LocalChanges) == 0 && len(p.RemoteChanges) == 0 && len(p.Conflicts) == 0 && len(p.RemoteCommits) == 0
 }
 
 // Lines renders the plan for humans.
@@ -63,6 +72,12 @@ func (p *SyncPlan) Lines() []string {
 		lines = append(lines, fmt.Sprintf("  %s (%d):", title, len(changes)))
 		for _, c := range changes {
 			lines = append(lines, fmt.Sprintf("    %-8s %s", c.Kind, c.Path))
+		}
+	}
+	if len(p.RemoteCommits) > 0 {
+		lines = append(lines, fmt.Sprintf("  replay GitLab commits one by one (%d):", len(p.RemoteCommits)))
+		for _, c := range p.RemoteCommits {
+			lines = append(lines, fmt.Sprintf("    %s %s  [%s, %d file(s)]", short(c.ID), commitTitle(c.CommitInfo), c.AuthorName, len(c.Changes)))
 		}
 	}
 	section("pull from GitLab", p.RemoteChanges)
@@ -161,4 +176,13 @@ func splitChanges(local, remote []FileChange) (onlyLocal, onlyRemote []FileChang
 
 func sortChanges(c []FileChange) {
 	sort.Slice(c, func(i, j int) bool { return c[i].Path < c[j].Path })
+}
+
+// commitTitle returns the first line of a commit message.
+func commitTitle(c gateway.CommitInfo) string {
+	if c.Title != "" {
+		return c.Title
+	}
+	title, _, _ := strings.Cut(c.Message, "\n")
+	return title
 }

@@ -169,6 +169,12 @@ type SyncInput struct {
 	DryRun    bool
 	Autostash bool
 	Message   string // custom GitLab commit message
+	// Replay pulls GitLab commits one by one, each as its own local commit
+	// with the original message, author and date.
+	Replay bool
+	// Format shapes local commit messages ("fix: title TASK-1"). Empty fields
+	// fall back to the values remembered in the mirror.
+	Format entity.CommitFormat
 }
 
 func (uc *SyncUseCase) loadMirror(in SyncInput) (*entity.MirrorSet, *entity.Mirror, error) {
@@ -193,10 +199,10 @@ func (uc *SyncUseCase) Plan(ctx context.Context, in SyncInput) (*SyncPlan, error
 	if err != nil {
 		return nil, err
 	}
-	return uc.plan(ctx, in.RepoPath, m)
+	return uc.plan(ctx, in.RepoPath, m, in.Replay)
 }
 
-func (uc *SyncUseCase) plan(ctx context.Context, repoPath string, m *entity.Mirror) (*SyncPlan, error) {
+func (uc *SyncUseCase) plan(ctx context.Context, repoPath string, m *entity.Mirror, replay bool) (*SyncPlan, error) {
 	base := m.Current()
 	p := &SyncPlan{Mirror: *m, Base: base}
 
@@ -249,6 +255,12 @@ func (uc *SyncUseCase) plan(ctx context.Context, repoPath string, m *entity.Mirr
 	}
 
 	p.LocalChanges, p.RemoteChanges, p.Conflicts = splitChanges(local, remote)
+
+	if replay && p.RemoteHead != base.RemoteSHA {
+		if p.RemoteCommits, err = uc.remoteCommits(ctx, m, base.RemoteSHA, p.RemoteHead); err != nil {
+			return nil, err
+		}
+	}
 	return p, nil
 }
 
@@ -266,6 +278,7 @@ type SyncResult struct {
 	RemoteCommit string
 	RemoteMoved  bool
 	Warnings     []string
+	Replayed     []entity.CommitPair // GitLab commits replayed as local commits
 }
 
 // Summary is a one-line result description.
@@ -277,6 +290,9 @@ func (r *SyncResult) Summary() string {
 		return "already up to date"
 	}
 	s := fmt.Sprintf("pulled %d, pushed %d, merged %d", r.Pulled, r.Pushed, len(r.Merged))
+	if len(r.Replayed) > 0 {
+		s = fmt.Sprintf("replayed %d commit(s), ", len(r.Replayed)) + s
+	}
 	if len(r.Conflicts) > 0 {
 		s += fmt.Sprintf(", %d conflict(s) to resolve: %s", len(r.Conflicts), strings.Join(r.Conflicts, ", "))
 	}
@@ -325,6 +341,12 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		return nil, err
 	}
 
+	if err := in.Format.Validate(); err != nil {
+		return nil, err
+	}
+	in.Format = in.Format.Merge(m.CommitFormat)
+	m.CommitFormat = in.Format // remembered when the sync is saved
+
 	res = &SyncResult{DryRun: in.DryRun}
 
 	if !in.DryRun {
@@ -357,7 +379,7 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		}
 	}
 
-	plan, err := uc.plan(ctx, in.RepoPath, m)
+	plan, err := uc.plan(ctx, in.RepoPath, m, in.Replay)
 	if err != nil {
 		return nil, err
 	}
@@ -368,6 +390,9 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 
 	if in.DryRun || plan.Empty() {
 		return res, nil
+	}
+	if len(plan.RemoteCommits) > 0 {
+		return uc.replay(ctx, in, set, m, plan, strategy, res)
 	}
 	if strategy == StrategyAbort && len(plan.Conflicts) > 0 {
 		return res, fmt.Errorf("%d file(s) changed on both sides; rerun with --strategy merge, local or remote", len(plan.Conflicts))
@@ -449,6 +474,18 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		}
 	}
 
+	// The local sync commit message is checked by the commit-msg hook before
+	// anything is pushed, so a rejected message cannot strand a pushed change.
+	localMsg := func(remote string) string {
+		return in.Format.Apply(fmt.Sprintf("sync %s with %s/%s\n\n%s..%s from GitLab\n\n%s: %s/%s@%s",
+			m.LocalBranch, m.ProjectName, m.RemoteBranch, short(base.RemoteSHA), short(plan.RemoteHead),
+			TrailerRemote, m.ProjectName, m.RemoteBranch, remote))
+	}
+	if err := checkMessages(uc.git, in.RepoPath, []string{localMsg(plan.RemoteHead)}); err != nil {
+		restore()
+		return res, err
+	}
+
 	// 2. Push local changes and merge results to GitLab.
 	newRemote := plan.RemoteHead
 	actions, err := uc.pushActions(in.RepoPath, m, base, plan, pushSet, merged)
@@ -487,10 +524,7 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 
 	// 3. Record the sync point locally. The commit is created even when only
 	// pushing, so local history shows every sync and can rebuild the mirror.
-	localMsg := fmt.Sprintf("sync: %s/%s %s..%s\n\n%s: %s/%s@%s",
-		m.ProjectName, m.RemoteBranch, short(base.RemoteSHA), short(plan.RemoteHead),
-		TrailerRemote, m.ProjectName, m.RemoteBranch, newRemote)
-	localCommit, err := uc.git.CommitPaths(in.RepoPath, localMsg, touched, true)
+	localCommit, err := uc.git.CommitPaths(in.RepoPath, localMsg(newRemote), touched, gateway.CommitOptions{AllowEmpty: true})
 	if err != nil {
 		return res, fmt.Errorf("pushed to GitLab (%s) but the local commit failed; commit the working tree manually and run `sync-init --recover --force` afterwards: %w", short(newRemote), err)
 	}
@@ -690,4 +724,25 @@ func (uc *SyncUseCase) pushActions(repoPath string, m *entity.Mirror, base entit
 		},
 		existsOnRemote,
 	)
+}
+
+// checkMessages runs the commit-msg hook on every distinct message.
+func checkMessages(git gateway.SyncGit, repoPath string, msgs []string) error {
+	seen := map[string]bool{}
+	for _, msg := range msgs {
+		title := firstLine(msg)
+		if seen[title] {
+			continue
+		}
+		seen[title] = true
+		if err := git.CheckCommitMessage(repoPath, msg); err != nil {
+			return fmt.Errorf("%w\nSet the commit type and task with --type and --task", err)
+		}
+	}
+	return nil
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }

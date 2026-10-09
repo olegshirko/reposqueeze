@@ -39,6 +39,14 @@ type MergeResult struct {
 	Conflicts bool
 }
 
+// CommitOptions tunes a commit created by CommitPaths.
+type CommitOptions struct {
+	AllowEmpty  bool
+	AuthorName  string // empty: use git config
+	AuthorEmail string
+	AuthorDate  string // any format git accepts, e.g. RFC 3339
+}
+
 // SyncGit is the set of local Git operations needed by two-way sync.
 type SyncGit interface {
 	RevParse(repoPath, ref string) (string, error)
@@ -52,7 +60,7 @@ type SyncGit interface {
 	FileAtRef(repoPath, ref, path string) (content []byte, found bool, err error)
 	MergeFile(ours, base, theirs []byte, labels [3]string) (MergeResult, error)
 	// CommitPaths stages exactly the given paths (including deletions) and commits.
-	CommitPaths(repoPath, message string, paths []string, allowEmpty bool) (string, error)
+	CommitPaths(repoPath, message string, paths []string, opts CommitOptions) (string, error)
 	// RestorePaths returns the given paths to their HEAD state, removing files HEAD does not have.
 	RestorePaths(repoPath string, paths []string) error
 	StashPush(repoPath, message string) (stashed bool, err error)
@@ -60,11 +68,22 @@ type SyncGit interface {
 	LogCommits(repoPath, ref string, limit int) ([]CommitInfo, error)
 	// FindLastTrailer returns the newest commit reachable from ref that has the trailer key.
 	FindLastTrailer(repoPath, ref, key string) (sha, value string, err error)
+	// TrailerValues lists commits in revRange (e.g. "a..b") that carry the trailer key.
+	TrailerValues(repoPath, revRange, key string) ([]TrailerRef, error)
 	IsAncestor(repoPath, ancestor, descendant string) (bool, error)
+	// CheckCommitMessage runs the repository's commit-msg hook (if any) on msg
+	// without committing.
+	CheckCommitMessage(repoPath, msg string) error
 }
 
 // MirrorStore persists sync mirrors of a local repository.
 type MirrorStore interface {
 	Load(repoPath string) (*entity.MirrorSet, error)
 	Save(repoPath string, set *entity.MirrorSet) error
+}
+
+// TrailerRef is a commit carrying a given trailer, with the trailer's value.
+type TrailerRef struct {
+	Commit string
+	Value  string
 }

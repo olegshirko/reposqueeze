@@ -57,10 +57,12 @@ func run(args []string) int {
 	pushFolderUseCase := usecase.NewPushFolderUseCase(gitlabGateway, log)
 	cherryPickCommitUseCase := usecase.NewCherryPickCommitUseCase(gitGateway, gitlabGateway, log)
 	pushBranchUseCase := usecase.NewPushBranchUseCase(gitGateway, gitlabGateway, log)
-	syncUseCase := usecase.NewSyncUseCase(gitGateway, gitlabGateway, state.NewFileStore(gitGateway), log)
+	mirrorStore := state.NewFileStore(gitGateway)
+	syncUseCase := usecase.NewSyncUseCase(gitGateway, gitlabGateway, mirrorStore, log)
+	pullCommitUseCase := usecase.NewPullCommitUseCase(gitGateway, gitlabGateway, mirrorStore, log)
 
 	// 4. Create an instance of the controller, injecting the use case (Interface Adapters)
-	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, cherryPickCommitUseCase, pushBranchUseCase, syncUseCase, gitlabGateway, log)
+	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, cherryPickCommitUseCase, pushBranchUseCase, syncUseCase, pullCommitUseCase, gitlabGateway, log)
 
 	// 5. Run the controller with command-line arguments
 	return cliController.Run(args)

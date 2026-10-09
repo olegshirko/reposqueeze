@@ -21,6 +21,13 @@ const (
 	SyncConflict = "conflict" // nothing transferred, only conflicts left to resolve
 )
 
+// CommitPair links a GitLab commit to the local commit it was replayed as.
+type CommitPair struct {
+	RemoteSHA string `json:"remote_sha"`
+	LocalSHA  string `json:"local_sha"`
+	Title     string `json:"title,omitempty"`
+}
+
 // JournalEntry records one synchronisation. LocalSHA/RemoteSHA are the
 // resulting matched pair; the *From fields describe what was transferred.
 type JournalEntry struct {
@@ -35,6 +42,8 @@ type JournalEntry struct {
 	Merged      []string `json:"merged,omitempty"`
 	Conflicts   []string `json:"conflicts,omitempty"`
 	RemoteMoved bool     `json:"remote_moved,omitempty"`
+	// Replayed lists GitLab commits pulled one by one (sync --replay).
+	Replayed []CommitPair `json:"replayed,omitempty"`
 }
 
 // PendingMerge lists files left with conflict markers by the last sync.
@@ -57,6 +66,8 @@ type Mirror struct {
 	Origin       SyncPoint      `json:"origin"`
 	Journal      []JournalEntry `json:"journal,omitempty"`
 	PendingMerge *PendingMerge  `json:"pending_merge,omitempty"`
+	// CommitFormat is the last commit type/task used for local sync commits.
+	CommitFormat CommitFormat `json:"commit_format,omitempty"`
 }
 
 // DefaultMirrorName builds the conventional mirror name.

@@ -120,7 +120,7 @@ func (g *OSExecGitGateway) MergeFile(ours, base, theirs []byte, labels [3]string
 }
 
 // CommitPaths stages the given paths (additions, modifications and deletions) and commits them.
-func (g *OSExecGitGateway) CommitPaths(repoPath, message string, paths []string, allowEmpty bool) (string, error) {
+func (g *OSExecGitGateway) CommitPaths(repoPath, message string, paths []string, opts gateway.CommitOptions) (string, error) {
 	if len(paths) > 0 {
 		args := append([]string{"add", "-A", "--"}, paths...)
 		if _, err := g.git(repoPath, args...); err != nil {
@@ -128,8 +128,14 @@ func (g *OSExecGitGateway) CommitPaths(repoPath, message string, paths []string,
 		}
 	}
 	args := []string{"commit", "-q", "-m", message}
-	if allowEmpty {
+	if opts.AllowEmpty {
 		args = append(args, "--allow-empty")
+	}
+	if opts.AuthorName != "" && opts.AuthorEmail != "" {
+		args = append(args, "--author", fmt.Sprintf("%s <%s>", opts.AuthorName, opts.AuthorEmail))
+	}
+	if opts.AuthorDate != "" {
+		args = append(args, "--date", opts.AuthorDate)
 	}
 	if _, err := g.git(repoPath, args...); err != nil {
 		return "", err
@@ -205,6 +211,25 @@ func (g *OSExecGitGateway) FindLastTrailer(repoPath, ref, key string) (string, s
 	return "", "", nil
 }
 
+// TrailerValues lists commits in revRange that carry the trailer key (newest first).
+func (g *OSExecGitGateway) TrailerValues(repoPath, revRange, key string) ([]gateway.TrailerRef, error) {
+	format := fmt.Sprintf("--format=%%H%%x00%%(trailers:key=%s,valueonly,separator=%%x2C)%%x00", key)
+	out, err := g.git(repoPath, "log", format, revRange)
+	if err != nil {
+		return nil, err
+	}
+	var refs []gateway.TrailerRef
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i+1 < len(fields); i += 2 {
+		for _, v := range strings.Split(strings.TrimSpace(fields[i+1]), ",") {
+			if v = strings.TrimSpace(v); v != "" {
+				refs = append(refs, gateway.TrailerRef{Commit: strings.TrimSpace(fields[i]), Value: v})
+			}
+		}
+	}
+	return refs, nil
+}
+
 // IsAncestor reports whether ancestor is reachable from descendant.
 func (g *OSExecGitGateway) IsAncestor(repoPath, ancestor, descendant string) (bool, error) {
 	cmd := exec.Command("git", "-C", repoPath, "merge-base", "--is-ancestor", ancestor, descendant)
@@ -217,5 +242,37 @@ func (g *OSExecGitGateway) IsAncestor(repoPath, ancestor, descendant string) (bo
 		return false, nil
 	default:
 		return false, err
+	}
+}
+
+// CheckCommitMessage runs the commit-msg hook on msg via `git hook run`
+// (git >= 2.36). Older git versions skip the check.
+func (g *OSExecGitGateway) CheckCommitMessage(repoPath, msg string) error {
+	f, err := os.CreateTemp("", "reposqueeze-msg-")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(msg + "\n"); err != nil {
+		f.Close()
+		return err
+	}
+	f.Close()
+
+	cmd := exec.Command("git", "-C", repoPath, "hook", "run", "--ignore-missing", "commit-msg", "--", f.Name())
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err = cmd.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && strings.Contains(out.String(), "is not a git command"):
+		return nil // git without `git hook`
+	case errors.As(err, &exitErr) && exitErr.ExitCode() == 129:
+		return nil // usage error: `git hook run` unsupported
+	default:
+		return fmt.Errorf("commit-msg hook rejected %q: %s", strings.SplitN(msg, "\n", 2)[0], strings.TrimSpace(out.String()))
 	}
 }

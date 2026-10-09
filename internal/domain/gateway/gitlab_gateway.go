@@ -17,9 +17,13 @@ type CommitAction struct {
 
 // CommitInfo holds basic metadata about a GitLab commit.
 type CommitInfo struct {
-	ID        string   `json:"id"`
-	Message   string   `json:"message"`
-	ParentIDs []string `json:"parent_ids,omitempty"`
+	ID           string   `json:"id"`
+	Title        string   `json:"title,omitempty"`
+	Message      string   `json:"message"`
+	ParentIDs    []string `json:"parent_ids,omitempty"`
+	AuthorName   string   `json:"author_name,omitempty"`
+	AuthorEmail  string   `json:"author_email,omitempty"`
+	AuthoredDate string   `json:"authored_date,omitempty"`
 }
 
 // DiffEntry describes a single file change inside a commit diff.
@@ -53,4 +57,7 @@ type GitLabGateway interface {
 	GetRawFile(projectID int, filePath, ref string) ([]byte, error)
 	FileExists(projectID int, filePath, ref string) (bool, error)
 	GetBranchHead(projectID int, branchName string) (string, error)
+	// ListCommitsAfter returns the first-parent commits of ref that come after
+	// the commit `after`, oldest first. It fails when `after` is not on that history.
+	ListCommitsAfter(projectID int, ref, after string, max int) ([]CommitInfo, error)
 }

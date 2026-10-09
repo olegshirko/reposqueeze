@@ -612,3 +612,58 @@ func (g *HTTPGitLabGateway) GetBranchHead(projectID int, branchName string) (str
 	}
 	return commits[0].ID, nil
 }
+
+// ListCommitsAfter walks the first-parent history of ref (newest first, page by
+// page) until it reaches `after`, and returns the commits seen before it, oldest first.
+func (g *HTTPGitLabGateway) ListCommitsAfter(projectID int, ref, after string, max int) ([]gateway.CommitInfo, error) {
+	const perPage = 100
+	var newestFirst []gateway.CommitInfo
+
+	for page := 1; ; page++ {
+		apiURL := fmt.Sprintf("%s/projects/%d/repository/commits?ref_name=%s&first_parent=true&per_page=%d&page=%d",
+			g.baseURL(), projectID, url.QueryEscape(ref), perPage, page)
+
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("PRIVATE-TOKEN", g.Token)
+
+		resp, err := g.Client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("gitlab api returned non-200 status for list commits: %s, body: %s", resp.Status, string(body))
+		}
+		var commits []gateway.CommitInfo
+		err = json.NewDecoder(resp.Body).Decode(&commits)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode commits: %w", err)
+		}
+
+		for _, c := range commits {
+			if c.ID == after || (len(after) >= 7 && strings.HasPrefix(c.ID, after)) {
+				return reverseCommits(newestFirst), nil
+			}
+			newestFirst = append(newestFirst, c)
+			if len(newestFirst) > max {
+				return nil, fmt.Errorf("more than %d commits on %s after %s", max, ref, after)
+			}
+		}
+		if len(commits) < perPage {
+			return nil, fmt.Errorf("commit %s is not on the first-parent history of %s", after, ref)
+		}
+	}
+}
+
+func reverseCommits(c []gateway.CommitInfo) []gateway.CommitInfo {
+	out := make([]gateway.CommitInfo, len(c))
+	for i := range c {
+		out[len(c)-1-i] = c[i]
+	}
+	return out
+}

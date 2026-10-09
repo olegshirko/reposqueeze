@@ -117,6 +117,14 @@ func (m *MockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessa
 	return args.Get(0).(gateway.CommitInfo), args.Error(1)
 }
 
+func (m *MockGitLabGateway) ListCommitsAfter(projectID int, ref, after string, max int) ([]gateway.CommitInfo, error) {
+	args := m.Called(projectID, ref, after, max)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]gateway.CommitInfo), args.Error(1)
+}
+
 func (m *MockGitLabGateway) GetBranchHead(projectID int, branchName string) (string, error) {
 	args := m.Called(projectID, branchName)
 	return args.String(0), args.Error(1)

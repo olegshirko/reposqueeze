@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
@@ -275,4 +276,48 @@ func TestNormalizeBaseURL(t *testing.T) {
 	assert.Equal(t, "https://git.example.com/api/v4", NormalizeBaseURL("https://git.example.com"))
 	assert.Equal(t, "https://git.example.com/api/v4", NormalizeBaseURL("https://git.example.com/"))
 	assert.Equal(t, "https://git.example.com/api/v4", NormalizeBaseURL("https://git.example.com/api/v4"))
+}
+
+func TestHTTPGitLabGateway_ListCommitsAfter(t *testing.T) {
+	// 150 commits on the branch, newest first: c149 ... c0.
+	all := make([]gateway.CommitInfo, 150)
+	for i := range all {
+		all[i] = gateway.CommitInfo{ID: fmt.Sprintf("c%03d%036d", 149-i, 0)}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		assert.Equal(t, "true", q.Get("first_parent"))
+		assert.Equal(t, "release", q.Get("ref_name"))
+		page, _ := strconv.Atoi(q.Get("page"))
+		start, end := (page-1)*100, page*100
+		if end > len(all) {
+			end = len(all)
+		}
+		if start > len(all) {
+			start = len(all)
+		}
+		json.NewEncoder(w).Encode(all[start:end])
+	}))
+	defer server.Close()
+
+	g := &HTTPGitLabGateway{Client: server.Client(), Token: "t", BaseURL: server.URL + "/api/v4",
+		logger: logger.NewLoggerWithWriter(logrus.New().Out)}
+
+	// "after" on the second page: c020 -> returns c021..c149, oldest first.
+	got, err := g.ListCommitsAfter(1, "release", all[129].ID, 1000)
+	assert.NoError(t, err)
+	assert.Len(t, got, 129)
+	assert.Equal(t, all[128].ID, got[0].ID)
+	assert.Equal(t, all[0].ID, got[len(got)-1].ID)
+
+	// Short SHA works, head itself yields nothing.
+	got, err = g.ListCommitsAfter(1, "release", all[0].ID[:10], 1000)
+	assert.NoError(t, err)
+	assert.Empty(t, got)
+
+	_, err = g.ListCommitsAfter(1, "release", "deadbeef", 1000)
+	assert.Error(t, err)
+
+	_, err = g.ListCommitsAfter(1, "release", all[129].ID, 50)
+	assert.Error(t, err)
 }

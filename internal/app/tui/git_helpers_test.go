@@ -91,6 +91,9 @@ type mockGitLabGateway struct {
 func (m *mockGitLabGateway) CommitFilesViaAPI(projectID, branchName, commitMessage string, actions []gateway.CommitAction) (gateway.CommitInfo, error) {
 	return gateway.CommitInfo{}, nil
 }
+func (m *mockGitLabGateway) ListCommitsAfter(projectID int, ref, after string, max int) ([]gateway.CommitInfo, error) {
+	return nil, nil
+}
 func (m *mockGitLabGateway) GetBranchHead(projectID int, branchName string) (string, error) {
 	return "", nil
 }
