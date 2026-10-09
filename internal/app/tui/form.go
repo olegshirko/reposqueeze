@@ -1,13 +1,16 @@
 package tui
 
 import (
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
 
@@ -363,15 +366,58 @@ func mirrorSelect(repoPath *string, value *string) *huh.Select[string] {
 		Value(value)
 }
 
+// commitTypes offered for local commit titles ("" keeps the remembered/original type).
+var commitTypes = []string{"fix", "feat", "test", "refactor", "chore", "docs", "perf", "ci", "build", "style"}
+
+func commitTypeSelect(repoPath *string, value *string) *huh.Select[string] {
+	return huh.NewSelect[string]().
+		Key("commitType").
+		Title("Commit type for local commits").
+		OptionsFunc(func() []huh.Option[string] {
+			keep := "keep original"
+			if f := getRememberedFormat(*repoPath); f.Type != "" {
+				keep = "remembered: " + f.Type
+			}
+			opts := []huh.Option[string]{huh.NewOption(keep, "")}
+			for _, t := range commitTypes {
+				opts = append(opts, huh.NewOption(t, t))
+			}
+			return opts
+		}, repoPath).
+		Value(value)
+}
+
+func taskInput(repoPath *string, value *string) *huh.Input {
+	return huh.NewInput().
+		Key("task").
+		Title("Task").
+		Description("Appended to local commit titles: \"fix: <title> TASK-1\"").
+		PlaceholderFunc(func() string {
+			if f := getRememberedFormat(*repoPath); f.Task != "" {
+				return f.Task + " (remembered)"
+			}
+			return "TASK-123"
+		}, repoPath).
+		Validate(func(s string) error {
+			return entity.CommitFormat{Task: strings.TrimSpace(s)}.Validate()
+		}).
+		Value(value)
+}
+
 func newSyncForm() *huh.Form {
-	var repoPath, mirror, strategy string
-	var autostash bool
+	var repoPath, mirror, strategy, commitType, task string
+	var autostash, replay bool
 	strategy = "merge"
 
 	return huh.NewForm(
 		huh.NewGroup(
 			repoPicker("repoPath").Value(&repoPath),
 			mirrorSelect(&repoPath, &mirror),
+			huh.NewConfirm().
+				Key("replay").
+				Title("Pull GitLab commits one by one?").
+				Description("Yes: a local commit per GitLab commit (message, author, date kept). No: one sync commit.").
+				Value(&replay),
 			huh.NewSelect[string]().
 				Key("strategy").
 				Title("Files changed on both sides").
@@ -386,6 +432,61 @@ func newSyncForm() *huh.Form {
 				Key("autostash").
 				Title("Stash uncommitted changes during sync?").
 				Value(&autostash),
+		),
+		huh.NewGroup(
+			commitTypeSelect(&repoPath, &commitType),
+			taskInput(&repoPath, &task),
+		),
+	)
+}
+
+func newPullCommitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+	var repoPath, branch, strategy, commitType, task string
+	var commits []string
+	strategy = "merge"
+
+	return huh.NewForm(
+		huh.NewGroup(
+			repoPicker("repoPath").Value(&repoPath),
+			huh.NewSelect[string]().
+				Key("branchName").
+				Title("GitLab branch to take commits from").
+				OptionsFunc(func() []huh.Option[string] {
+					return huh.NewOptions(getGitLabBranches(gitlabGW, repoPath)...)
+				}, &repoPath).
+				Value(&branch),
+		),
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Key("commits").
+				Title("Commits to bring in").
+				Description("space/x: select • /: filter • [in local] = already brought in • applied oldest first").
+				OptionsFunc(func() []huh.Option[string] {
+					return getPickableCommits(gitlabGW, repoPath, branch, 100)
+				}, &branch).
+				Filterable(true).
+				Height(16).
+				Validate(func(s []string) error {
+					if len(s) == 0 {
+						return fmt.Errorf("select at least one commit")
+					}
+					return nil
+				}).
+				Value(&commits),
+		),
+		huh.NewGroup(
+			commitTypeSelect(&repoPath, &commitType),
+			taskInput(&repoPath, &task),
+			huh.NewSelect[string]().
+				Key("strategy").
+				Title("If a commit touches files you changed locally").
+				Options(
+					huh.NewOption("merge: 3-way merge, stop on conflict like git cherry-pick", "merge"),
+					huh.NewOption("local: keep the local version", "local"),
+					huh.NewOption("remote: take the GitLab version", "remote"),
+					huh.NewOption("abort: stop without changing anything", "abort"),
+				).
+				Value(&strategy),
 		),
 	)
 }
@@ -504,6 +605,8 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 		form = newSyncLogForm()
 	case cmdSyncConfirm:
 		form = newSyncConfirmForm()
+	case cmdPullCommit:
+		form = newPullCommitForm(gitlabGW)
 	}
 	if form != nil {
 		form.WithKeyMap(formKeyMap())

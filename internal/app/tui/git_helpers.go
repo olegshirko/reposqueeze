@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
+	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/state"
@@ -175,7 +176,7 @@ func getMirrorNames(repoPath string) []string {
 	if repoPath == "" {
 		return nil
 	}
-	gw := git.NewOSExecGitGateway(logger.NewLoggerWithWriter(io.Discard))
+	gw := quietGit()
 	set, err := state.NewFileStore(gw).Load(repoPath)
 	if err != nil {
 		return nil
@@ -185,4 +186,64 @@ func getMirrorNames(repoPath string) []string {
 		names = append(names, m.Name)
 	}
 	return names
+}
+
+// quietGit returns a git gateway that logs nowhere (safe while the TUI owns stdout).
+func quietGit() *git.OSExecGitGateway {
+	return git.NewOSExecGitGateway(logger.NewLoggerWithWriter(io.Discard))
+}
+
+// getRememberedFormat returns the commit type/task stored in the mirror of
+// the repository's current branch.
+func getRememberedFormat(repoPath string) entity.CommitFormat {
+	if repoPath == "" {
+		return entity.CommitFormat{}
+	}
+	gw := quietGit()
+	branch, err := gw.CurrentBranch(repoPath)
+	if err != nil {
+		return entity.CommitFormat{}
+	}
+	set, err := state.NewFileStore(gw).Load(repoPath)
+	if err != nil {
+		return entity.CommitFormat{}
+	}
+	for _, m := range set.Mirrors {
+		if m.LocalBranch == branch && !m.CommitFormat.IsZero() {
+			return m.CommitFormat
+		}
+	}
+	return entity.CommitFormat{}
+}
+
+// getPickableCommits lists GitLab commits of branch as options; commits
+// already brought into the local branch are marked "[in local]".
+func getPickableCommits(gw gateway.GitLabGateway, repoPath, branch string, limit int) []huh.Option[string] {
+	if repoPath == "" || branch == "" {
+		return nil
+	}
+	gitGW := quietGit()
+	uc := usecase.NewPullCommitUseCase(gitGW, gw, state.NewFileStore(gitGW), logger.NewLoggerWithWriter(io.Discard))
+	commits, picked, err := uc.ListCommits(repoPath, branch, limit)
+	if err != nil {
+		return []huh.Option[string]{huh.NewOption("(cannot list commits: "+err.Error()+")", "")}
+	}
+	var opts []huh.Option[string]
+	for _, c := range commits {
+		mark := ""
+		if _, ok := picked[c.ID]; ok {
+			mark = "  [in local]"
+		}
+		date := c.AuthoredDate
+		if len(date) >= 10 {
+			date = date[:10]
+		}
+		title := c.Title
+		if title == "" {
+			title, _, _ = strings.Cut(c.Message, "\n")
+		}
+		label := fmt.Sprintf("%.8s  %s  %-14.14s  %s%s", c.ID, date, c.AuthorName, title, mark)
+		opts = append(opts, huh.NewOption(label, c.ID))
+	}
+	return opts
 }

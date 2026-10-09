@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
+	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/gitlab"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/state"
@@ -31,6 +33,8 @@ func (m *appModel) handleSyncForm(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 			Mirror:    f.GetString("mirror"),
 			Strategy:  f.GetString("strategy"),
 			Autostash: f.GetBool("autostash"),
+			Replay:    f.GetBool("replay"),
+			Format:    formatFromForm(f),
 		}
 		m.pendingSync = &in
 		m.state = statePlanning
@@ -95,6 +99,30 @@ func (m *appModel) handleSyncForm(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 			return runResultMsg{summary: "mirror " + mirror.Name + " created"}
 		})
 
+	case cmdPullCommit:
+		commits, _ := f.Get("commits").([]string)
+		in := usecase.PullCommitInput{
+			RepoPath: f.GetString("repoPath"),
+			Commits:  commits,
+			Strategy: f.GetString("strategy"),
+			Format:   formatFromForm(f),
+		}
+		return m.startRunWithSummary(func(ctx context.Context, d deps) runResultMsg {
+			uc := usecase.NewPullCommitUseCase(d.syncGit, d.gitlab, state.NewFileStore(d.syncGit), d.log)
+			res, err := uc.Execute(ctx, in)
+			if err != nil {
+				return runResultMsg{err: err}
+			}
+			if res.StoppedAt != nil {
+				d.log.Warnf("Resolve conflicts in: %s", strings.Join(res.Conflicts, ", "))
+				d.log.Warnf("Then commit:  %s", res.CommitCommand)
+				if len(res.Remaining) > 0 {
+					d.log.Warnf("Then pick the remaining %d commit(s) again from Pull commits.", len(res.Remaining))
+				}
+			}
+			return runResultMsg{summary: res.Summary(), count: len(res.Picked)}
+		})
+
 	case cmdSyncLog:
 		repoPath := f.GetString("repoPath")
 		return m.startRunWithSummary(func(ctx context.Context, d deps) runResultMsg {
@@ -114,6 +142,14 @@ func (m *appModel) handleSyncForm(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 		})
 	}
 	return m, nil
+}
+
+// formatFromForm reads the commit type and task fields.
+func formatFromForm(f *huh.Form) entity.CommitFormat {
+	return entity.CommitFormat{
+		Type: f.GetString("commitType"),
+		Task: strings.TrimSpace(f.GetString("task")),
+	}
 }
 
 // planCmd computes the sync plan in the background with silent gateways.

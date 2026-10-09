@@ -222,7 +222,7 @@ func (m *appModel) View() string {
 
 func (m *appModel) handleFormSubmit(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 	switch msg.cmd {
-	case cmdSync, cmdSyncStatus, cmdSyncInit, cmdSyncLog, cmdSyncConfirm:
+	case cmdSync, cmdSyncStatus, cmdSyncInit, cmdSyncLog, cmdSyncConfirm, cmdPullCommit:
 		return m.handleSyncForm(msg)
 	}
 
