@@ -440,7 +440,16 @@ func newSyncForm() *huh.Form {
 	)
 }
 
-func newPullCommitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+// listRows is how many rows a long option list gets on a terminal of the given
+// height, leaving room for titles, other fields and help.
+func listRows(termHeight, reserved int) int {
+	if termHeight <= 0 {
+		return 12
+	}
+	return max(termHeight-reserved, 5)
+}
+
+func newPullCommitForm(gitlabGW gateway.GitLabGateway, termHeight int) *huh.Form {
 	var repoPath, branch, strategy, commitType, task string
 	var commits []string
 	strategy = "merge"
@@ -465,7 +474,7 @@ func newPullCommitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 					return getPickableCommits(gitlabGW, repoPath, branch, 100)
 				}, &branch).
 				Filterable(true).
-				Height(16).
+				Height(listRows(termHeight, 8)).
 				Validate(func(s []string) error {
 					if len(s) == 0 {
 						return fmt.Errorf("select at least one commit")
@@ -524,7 +533,10 @@ func newSyncConfirmForm() *huh.Form {
 	)
 }
 
-func newSyncInitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
+func newSyncInitForm(gitlabGW gateway.GitLabGateway, termHeight int) *huh.Form {
+	// The second page shows two commit lists plus two small fields.
+	rows := max((listRows(termHeight, 14))/2, 5)
+
 	var repoPath, localBranch, remoteBranch, localSHA, remoteSHA, name string
 	var force bool
 
@@ -554,7 +566,7 @@ func newSyncInitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 				OptionsFunc(func() []huh.Option[string] {
 					return getGitCommits(repoPath, localBranch, 50)
 				}, &localBranch).
-				Height(12).
+				Height(rows).
 				Value(&localSHA),
 			huh.NewSelect[string]().
 				Key("remoteSHA").
@@ -562,7 +574,7 @@ func newSyncInitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 				OptionsFunc(func() []huh.Option[string] {
 					return getGitLabCommits(gitlabGW, repoPath, remoteBranch, 50)
 				}, &remoteBranch).
-				Height(12).
+				Height(rows).
 				Value(&remoteSHA),
 			huh.NewInput().
 				Key("name").
@@ -578,7 +590,7 @@ func newSyncInitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 }
 
 // buildForm returns a huh.Form for the given command.
-func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
+func buildForm(cmd string, gitlabGW gateway.GitLabGateway, termHeight int) *huh.Form {
 	var form *huh.Form
 	switch cmd {
 	case cmdCreateFromLocal:
@@ -600,13 +612,13 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway) *huh.Form {
 	case cmdSyncStatus:
 		form = newSyncStatusForm()
 	case cmdSyncInit:
-		form = newSyncInitForm(gitlabGW)
+		form = newSyncInitForm(gitlabGW, termHeight)
 	case cmdSyncLog:
 		form = newSyncLogForm()
 	case cmdSyncConfirm:
 		form = newSyncConfirmForm()
 	case cmdPullCommit:
-		form = newPullCommitForm(gitlabGW)
+		form = newPullCommitForm(gitlabGW, termHeight)
 	}
 	if form != nil {
 		form.WithKeyMap(formKeyMap())
@@ -621,8 +633,8 @@ type formModel struct {
 	header string // optional text shown above the form
 }
 
-func newFormModel(cmd string, gitlabGW gateway.GitLabGateway) formModel {
-	return formModel{cmd: cmd, form: buildForm(cmd, gitlabGW)}
+func newFormModel(cmd string, gitlabGW gateway.GitLabGateway, termHeight int) formModel {
+	return formModel{cmd: cmd, form: buildForm(cmd, gitlabGW, termHeight)}
 }
 
 func (m formModel) Init() tea.Cmd {
@@ -630,6 +642,12 @@ func (m formModel) Init() tea.Cmd {
 }
 
 func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		// The form is drawn inside a 1x2 margin, below the optional header.
+		ws.Width = max(ws.Width-4, 20)
+		ws.Height = max(ws.Height-2-m.headerHeight(), 5)
+		msg = ws
+	}
 	form, cmd := m.form.Update(msg)
 	if f, ok := form.(*huh.Form); ok {
 		m.form = f
@@ -638,8 +656,16 @@ func (m formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 }
 
 func (m formModel) View() string {
-	if m.header == "" {
-		return m.form.View()
+	view := m.form.View()
+	if m.header != "" {
+		view = m.header + "\n\n" + view
 	}
-	return lipgloss.NewStyle().Margin(1, 2).Render(m.header) + "\n" + m.form.View()
+	return lipgloss.NewStyle().Margin(1, 2).Render(view)
+}
+
+func (m formModel) headerHeight() int {
+	if m.header == "" {
+		return 0
+	}
+	return lipgloss.Height(m.header) + 1
 }

@@ -190,8 +190,6 @@ func (m *appModel) handleSyncPlan(msg syncPlanMsg) (tea.Model, tea.Cmd) {
 	if len(msg.plan.Conflicts) > 0 {
 		header += "\n\n" + helpStyle.Render("Strategy for files changed on both sides: "+m.pendingSync.Strategy)
 	}
-	f := formModel{cmd: cmdSyncConfirm, form: buildForm(cmdSyncConfirm, m.gitlabGateway), header: header}
-	m.form = &f
 	m.state = stateForm
-	return m, m.form.Init()
+	return m, m.showForm(formModel{cmd: cmdSyncConfirm, form: buildForm(cmdSyncConfirm, m.gitlabGateway, m.height), header: header})
 }

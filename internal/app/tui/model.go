@@ -86,18 +86,14 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// propagate to active sub-model
-		switch m.state {
-		case stateMenu:
-			m.menu, _ = m.menu.Update(msg)
-		case stateForm, stateFileSelect:
-			if m.form != nil {
-				*m.form, _ = m.form.Update(msg)
-			}
-		case stateRunning, stateResult:
-			if m.runner != nil {
-				*m.runner, _ = m.runner.Update(msg)
-			}
+		// Every screen learns the new size, so going back to one later
+		// does not show it at a stale size.
+		m.menu, _ = m.menu.Update(msg)
+		if m.form != nil {
+			*m.form, _ = m.form.Update(msg)
+		}
+		if m.runner != nil {
+			*m.runner, _ = m.runner.Update(msg)
 		}
 		return m, nil
 
@@ -130,9 +126,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cmdSelectedMsg:
 		m.state = stateForm
-		f := newFormModel(msg.cmd, m.gitlabGateway)
-		m.form = &f
-		return m, m.form.Init()
+		return m, m.showForm(newFormModel(msg.cmd, m.gitlabGateway, m.height))
 
 	case formSubmittedMsg:
 		return m.handleFormSubmit(msg)
@@ -200,6 +194,17 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// showForm makes f the current form, sized to the terminal (a form created
+// after startup never receives the initial WindowSizeMsg by itself).
+func (m *appModel) showForm(f formModel) tea.Cmd {
+	m.form = &f
+	cmd := m.form.Init()
+	if m.width > 0 {
+		*m.form, _ = m.form.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	}
+	return cmd
 }
 
 func (m *appModel) View() string {
@@ -273,8 +278,7 @@ func (m *appModel) handleFormSubmit(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 			cmd:  cmdPullFiles,
 			form: newPullFilesStep2Form(files, false),
 		}
-		m.form = &f
-		return m, m.form.Init()
+		return m, m.showForm(f)
 	}
 
 	if msg.cmd == cmdPullFiles && m.state == stateFileSelect {
