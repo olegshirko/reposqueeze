@@ -23,6 +23,7 @@ type CLIController struct {
 	pushBranchUseCase       *usecase.PushBranchUseCase
 	syncUseCase             *usecase.SyncUseCase
 	pullCommitUseCase       *usecase.PullCommitUseCase
+	clipUseCase             *usecase.ClipUseCase
 	gitlabGateway           gateway.GitLabGateway
 	logger                  logger.Logger
 }
@@ -107,6 +108,8 @@ func (c *CLIController) Run(args []string) int {
 		err = c.handleSyncLog(remainingArgs)
 	case "pull-commit":
 		err = c.handlePullCommit(remainingArgs)
+	case "clip":
+		err = c.handleClip(remainingArgs)
 	case "help", "-h", "--help":
 		c.printUsage()
 		return ExitOK
@@ -447,6 +450,10 @@ func (c *CLIController) printUsage() {
 	fmt.Println("  --type/--task make local commit messages look like \"fix: <title> TASK-1\"; sync remembers them per mirror.")
 	fmt.Println("  --from/--to YYYY-MM-DD spread the dates of brought-in commits evenly over working days")
 	fmt.Println("    (pull-commit, sync --replay); tune with --hours 10-19, --weekends, --jitter 20m; preview with --dry-run.")
+	fmt.Println("")
+	fmt.Println("Shared clipboard between Macs (through a private GitLab project, encrypted):")
+	fmt.Println("  clip push | pull | watch [--pull]")
+	fmt.Println("                        watch sends the clipboard when you press ⌘C twice; --pull also receives automatically.")
 	fmt.Println("")
 	fmt.Println("  tui                 Interactive mode")
 }

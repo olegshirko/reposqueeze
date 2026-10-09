@@ -156,6 +156,14 @@ func (m *MockGitLabGateway) CreateProject(name string) (*entity.Project, error) 
 	return args.Get(0).(*entity.Project), args.Error(1)
 }
 
+func (m *MockGitLabGateway) CreatePrivateProject(name string) (*entity.Project, error) {
+	args := m.Called(name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*entity.Project), args.Error(1)
+}
+
 func (m *MockGitLabGateway) DownloadRepoArchive(projectID int, ref string, writer *bytes.Buffer) error {
 	args := m.Called(projectID, ref, writer)
 	return args.Error(0)

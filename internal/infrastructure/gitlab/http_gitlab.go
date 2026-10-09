@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -281,13 +283,20 @@ func (g *HTTPGitLabGateway) DeleteProject(projectID int) error {
 }
 
 type createProjectPayload struct {
-	Name string `json:"name"`
+	Name       string `json:"name"`
+	Visibility string `json:"visibility,omitempty"`
 }
 
 func (g *HTTPGitLabGateway) CreateProject(name string) (*entity.Project, error) {
-	payload := createProjectPayload{
-		Name: name,
-	}
+	return g.createProject(createProjectPayload{Name: name})
+}
+
+// CreatePrivateProject creates a project visible only to its members.
+func (g *HTTPGitLabGateway) CreatePrivateProject(name string) (*entity.Project, error) {
+	return g.createProject(createProjectPayload{Name: name, Visibility: "private"})
+}
+
+func (g *HTTPGitLabGateway) createProject(payload createProjectPayload) (*entity.Project, error) {
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -666,4 +675,116 @@ func reverseCommits(c []gateway.CommitInfo) []gateway.CommitInfo {
 		out[len(c)-1-i] = c[i]
 	}
 	return out
+}
+
+var _ gateway.GenericPackages = (*HTTPGitLabGateway)(nil)
+
+// do sends a request with the token and fails on an unexpected status.
+func (g *HTTPGitLabGateway) do(method, apiURL string, body io.Reader, want ...int) ([]byte, error) {
+	req, err := http.NewRequest(method, apiURL, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("PRIVATE-TOKEN", g.Token)
+	resp, err := g.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range want {
+		if resp.StatusCode == w {
+			return data, nil
+		}
+	}
+	return nil, &APIError{Status: resp.StatusCode, Method: method, URL: apiURL, Body: strings.TrimSpace(string(data))}
+}
+
+// APIError is a non-successful GitLab API response.
+type APIError struct {
+	Status int
+	Method string
+	URL    string
+	Body   string
+}
+
+func (e *APIError) Error() string {
+	body := e.Body
+	if len(body) > 300 {
+		body = body[:300] + "..."
+	}
+	return fmt.Sprintf("gitlab api %s %s: status %d: %s", e.Method, e.URL, e.Status, body)
+}
+
+func (g *HTTPGitLabGateway) genericURL(projectID int, pkg, version, file string) string {
+	return fmt.Sprintf("%s/projects/%d/packages/generic/%s/%s/%s",
+		g.baseURL(), projectID, url.PathEscape(pkg), url.PathEscape(version), url.PathEscape(file))
+}
+
+// UploadPackageFile uploads data as a file of a generic package version.
+func (g *HTTPGitLabGateway) UploadPackageFile(projectID int, pkg, version, file string, data []byte) error {
+	_, err := g.do(http.MethodPut, g.genericURL(projectID, pkg, version, file), bytes.NewReader(data),
+		http.StatusCreated, http.StatusOK)
+	if apiErr := (*APIError)(nil); errors.As(err, &apiErr) && (apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusNotFound) {
+		return fmt.Errorf("%w (is the Package Registry enabled for the project? Settings > General > Visibility, project features)", err)
+	}
+	return err
+}
+
+// DownloadPackageFile downloads the newest file with that name.
+func (g *HTTPGitLabGateway) DownloadPackageFile(projectID int, pkg, version, file string) ([]byte, error) {
+	return g.do(http.MethodGet, g.genericURL(projectID, pkg, version, file), nil, http.StatusOK)
+}
+
+// ListPackageFiles lists the files of a generic package version.
+func (g *HTTPGitLabGateway) ListPackageFiles(projectID int, pkg, version string) ([]gateway.PackageFile, error) {
+	data, err := g.do(http.MethodGet, fmt.Sprintf("%s/projects/%d/packages?package_type=generic&package_name=%s&per_page=100",
+		g.baseURL(), projectID, url.QueryEscape(pkg)), nil, http.StatusOK)
+	if err != nil {
+		return nil, err
+	}
+	var packages []struct {
+		ID      int    `json:"id"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &packages); err != nil {
+		return nil, fmt.Errorf("failed to decode packages: %w", err)
+	}
+	var files []gateway.PackageFile
+	for _, p := range packages {
+		if p.Name != pkg || p.Version != version {
+			continue
+		}
+		for page := 1; ; page++ {
+			data, err := g.do(http.MethodGet, fmt.Sprintf("%s/projects/%d/packages/%d/package_files?per_page=100&page=%d",
+				g.baseURL(), projectID, p.ID, page), nil, http.StatusOK)
+			if err != nil {
+				return nil, err
+			}
+			var batch []gateway.PackageFile
+			if err := json.Unmarshal(data, &batch); err != nil {
+				return nil, fmt.Errorf("failed to decode package files: %w", err)
+			}
+			for i := range batch {
+				batch[i].PackageID = p.ID
+			}
+			files = append(files, batch...)
+			if len(batch) < 100 {
+				break
+			}
+		}
+	}
+	sort.SliceStable(files, func(i, j int) bool { return files[i].ID < files[j].ID })
+	return files, nil
+}
+
+// DeletePackageFile removes one file of a package.
+func (g *HTTPGitLabGateway) DeletePackageFile(projectID, packageID, fileID int) error {
+	_, err := g.do(http.MethodDelete, fmt.Sprintf("%s/projects/%d/packages/%d/package_files/%d",
+		g.baseURL(), projectID, packageID, fileID), nil, http.StatusNoContent, http.StatusOK)
+	return err
 }

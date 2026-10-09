@@ -3,15 +3,18 @@ package gitlab
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHTTPGitLabGateway_CommitFilesViaAPI(t *testing.T) {
@@ -320,4 +323,60 @@ func TestHTTPGitLabGateway_ListCommitsAfter(t *testing.T) {
 
 	_, err = g.ListCommitsAfter(1, "release", all[129].ID, 50)
 	assert.Error(t, err)
+}
+
+func TestHTTPGitLabGateway_GenericPackages(t *testing.T) {
+	stored := map[string][]byte{}
+	var files []map[string]interface{}
+	deleted := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "t", r.Header.Get("PRIVATE-TOKEN"))
+		p := r.URL.Path
+		switch {
+		case r.Method == http.MethodPut && p == "/api/v4/projects/5/packages/generic/clipboard/latest/clip.bin":
+			body, _ := io.ReadAll(r.Body)
+			stored["clip.bin"] = body
+			files = append(files, map[string]interface{}{"id": len(files) + 10, "file_name": "clip.bin"})
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && p == "/api/v4/projects/5/packages/generic/clipboard/latest/clip.bin":
+			w.Write(stored["clip.bin"])
+		case r.Method == http.MethodGet && strings.HasPrefix(p, "/api/v4/projects/5/packages/generic/"):
+			http.Error(w, `{"message":"404 Not Found"}`, http.StatusNotFound)
+		case r.Method == http.MethodGet && p == "/api/v4/projects/5/packages":
+			assert.Equal(t, "generic", r.URL.Query().Get("package_type"))
+			json.NewEncoder(w).Encode([]map[string]interface{}{
+				{"id": 3, "name": "clipboard", "version": "latest"},
+				{"id": 4, "name": "clipboard", "version": "other"},
+			})
+		case r.Method == http.MethodGet && p == "/api/v4/projects/5/packages/3/package_files":
+			json.NewEncoder(w).Encode(files)
+		case r.Method == http.MethodDelete && strings.HasPrefix(p, "/api/v4/projects/5/packages/3/package_files/"):
+			deleted = append(deleted, strings.TrimPrefix(p, "/api/v4/projects/5/packages/3/package_files/"))
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, p)
+			w.WriteHeader(http.StatusTeapot)
+		}
+	}))
+	defer server.Close()
+	g := &HTTPGitLabGateway{Client: server.Client(), Token: "t", BaseURL: server.URL + "/api/v4",
+		logger: logger.NewLoggerWithWriter(logrus.New().Out)}
+
+	blob := []byte("Salted__\x00\x01binary\xff")
+	require.NoError(t, g.UploadPackageFile(5, "clipboard", "latest", "clip.bin", blob))
+	require.NoError(t, g.UploadPackageFile(5, "clipboard", "latest", "clip.bin", blob))
+	got, err := g.DownloadPackageFile(5, "clipboard", "latest", "clip.bin")
+	require.NoError(t, err)
+	assert.Equal(t, blob, got, "binary data survives as is")
+
+	list, err := g.ListPackageFiles(5, "clipboard", "latest")
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, 3, list[0].PackageID)
+	require.NoError(t, g.DeletePackageFile(5, 3, list[0].ID))
+	assert.Equal(t, []string{"10"}, deleted)
+
+	_, err = g.DownloadPackageFile(5, "clipboard", "latest", "missing.bin")
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
 }

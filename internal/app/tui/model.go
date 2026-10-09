@@ -126,6 +126,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case cmdSelectedMsg:
+		if msg.cmd == cmdClipPush || msg.cmd == cmdClipPull {
+			return m.runClip(msg.cmd)
+		}
 		m.state = stateForm
 		return m, m.showForm(newFormModel(msg.cmd, m.gitlabGateway, m.height))
 
@@ -320,6 +323,7 @@ type deps struct {
 	git     gateway.GitGateway
 	syncGit gateway.SyncGit
 	gitlab  gateway.GitLabGateway
+	clip    usecase.ClipGitLab
 }
 
 func (d deps) syncUseCase() *usecase.SyncUseCase {
@@ -342,11 +346,13 @@ func (m *appModel) startRunWithSummary(fn func(ctx context.Context, d deps) runR
 	tuiLog := NewTUILogger()
 	// rebuild gateways so their logs also appear in the TUI
 	gitGW := git.NewOSExecGitGateway(tuiLog)
+	gitlabGW := gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL)
 	d := deps{
 		log:     tuiLog,
 		git:     gitGW,
 		syncGit: gitGW,
-		gitlab:  gitlab.NewHTTPGitLabGateway(m.gitlabToken, tuiLog).WithBaseURL(m.gitlabBaseURL),
+		gitlab:  gitlabGW,
+		clip:    gitlabGW,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 

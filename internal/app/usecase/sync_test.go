@@ -52,6 +52,9 @@ type fakeGitLab struct {
 	// beforeCommit runs inside CommitFilesViaAPI before the commit is applied,
 	// e.g. to simulate a concurrent push.
 	beforeCommit func()
+	// missing hides the project until CreatePrivateProject is called.
+	missing bool
+	private bool
 }
 
 func newFakeGitLab(name, branch string, files map[string]string) *fakeGitLab {
@@ -150,7 +153,7 @@ func (f *fakeGitLab) CommitFilesViaAPI(projectID, branchName, msg string, action
 }
 
 func (f *fakeGitLab) FindProjectByName(name string) (*entity.Project, error) {
-	if name == f.project.Name {
+	if name == f.project.Name && !f.missing {
 		p := f.project
 		return &p, nil
 	}
@@ -708,4 +711,13 @@ func TestSync_UntrackedFilesDoNotBlock(t *testing.T) {
 	_, err = e.uc.Sync(context.Background(), SyncInput{RepoPath: e.repo})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "uncommitted changes in a.txt")
+}
+
+// CreatePrivateProject makes the fake project exist (see missing).
+func (f *fakeGitLab) CreatePrivateProject(name string) (*entity.Project, error) {
+	f.project.Name = name
+	f.missing = false
+	f.private = true
+	p := f.project
+	return &p, nil
 }

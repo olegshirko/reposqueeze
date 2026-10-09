@@ -4,7 +4,7 @@ BINARY_PATH=./bin/$(BINARY_NAME)
 BINARY_PATH_LINUX=./bin/$(BINARY_NAME)-linux
 
 # Phony targets to avoid conflicts with files of the same name
-.PHONY: all build build-linux pack pack-linux tui help
+.PHONY: all build build-linux pack pack-linux tui help clipsync
 
 # The default target is 'help'
 all: 
@@ -53,4 +53,16 @@ help:
 	@echo "  pack          Build and then pack the application with upx."
 	@echo "  build-linux   Compile the application for Linux."
 	@echo "  pack-linux    Build and then pack the Linux application with upx."
+	@echo "  clipsync      Build the clipboard helper into ~/.clipsync/bin (macOS)."
 	@echo "  help          Show this help message."
+
+# Build the clipboard helper (macOS, needs Xcode command line tools) as a
+# universal binary into ~/.clipsync/bin, where `reposqueeze clip` looks for it.
+CLIPSYNC_DIR=$(HOME)/.clipsync/bin
+clipsync:
+	@mkdir -p $(CLIPSYNC_DIR) ./bin
+	@swiftc -O -target arm64-apple-macos12 -o ./bin/clipsync-arm64 tools/clipsync/clipsync.swift
+	@swiftc -O -target x86_64-apple-macos12 -o ./bin/clipsync-x86_64 tools/clipsync/clipsync.swift
+	@lipo -create -output $(CLIPSYNC_DIR)/clipsync ./bin/clipsync-arm64 ./bin/clipsync-x86_64
+	@rm -f ./bin/clipsync-arm64 ./bin/clipsync-x86_64
+	@echo "Installed: $(CLIPSYNC_DIR)/clipsync"

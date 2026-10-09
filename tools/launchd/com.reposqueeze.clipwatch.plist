@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Фоновый `reposqueeze clip watch`: отправляет буфер по двойному ⌘C.
+  Для автоприёма с другого мака допишите флаг pull (с двумя дефисами) после
+  "clip watch" в строке команды ниже.
+
+  Установка (подставьте свой путь к reposqueeze, если он не в ~/bin):
+    cp tools/launchd/com.reposqueeze.clipwatch.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.reposqueeze.clipwatch.plist
+  Остановка:
+    launchctl bootout gui/$(id -u)/com.reposqueeze.clipwatch
+  Лог: /tmp/reposqueeze-clipwatch.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.reposqueeze.clipwatch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>export GITLAB_TOKEN=$(/usr/bin/security find-generic-password -a "$USER" -s reposqueeze-gitlab -w) &amp;&amp; exec "$HOME/bin/reposqueeze" clip watch</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/reposqueeze-clipwatch.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/reposqueeze-clipwatch.log</string>
+</dict>
+</plist>

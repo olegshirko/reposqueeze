@@ -107,6 +107,9 @@ func (m *mockGitLabGateway) DeleteProject(projectID int) error { return nil }
 func (m *mockGitLabGateway) CreateProject(name string) (*entity.Project, error) {
 	return nil, nil
 }
+func (m *mockGitLabGateway) CreatePrivateProject(name string) (*entity.Project, error) {
+	return nil, nil
+}
 func (m *mockGitLabGateway) DownloadRepoArchive(projectID int, ref string, writer *bytes.Buffer) error {
 	return nil
 }

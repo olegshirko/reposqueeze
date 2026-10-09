@@ -49,6 +49,7 @@ type GitLabGateway interface {
 	FindProjectByName(name string) (*entity.Project, error)
 	DeleteProject(projectID int) error
 	CreateProject(name string) (*entity.Project, error)
+	CreatePrivateProject(name string) (*entity.Project, error)
 	DownloadRepoArchive(projectID int, ref string, writer *bytes.Buffer) error
 	GetBranches(projectID int) ([]BranchInfo, error)
 	GetCommits(projectID int, branchName string, limit int) ([]CommitInfo, error)

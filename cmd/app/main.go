@@ -9,6 +9,7 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/app/controller"
 	"github.com/olegshirko/reposqueeze/internal/app/tui"
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
+	"github.com/olegshirko/reposqueeze/internal/infrastructure/clipboard"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/git"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/gitlab"
 	"github.com/olegshirko/reposqueeze/internal/infrastructure/state"
@@ -63,6 +64,8 @@ func run(args []string) int {
 
 	// 4. Create an instance of the controller, injecting the use case (Interface Adapters)
 	cliController := controller.NewCLIController(createBranchUseCase, createOrphanBranchFromGitlabUseCase, pushFilesUseCase, pullFilesUseCase, pushFolderUseCase, cherryPickCommitUseCase, pushBranchUseCase, syncUseCase, pullCommitUseCase, gitlabGateway, log)
+
+	cliController.SetClipUseCase(usecase.NewClipUseCase(gitlabGateway, clipboard.NewClipsync(clipboard.DefaultBin()), log))
 
 	// 5. Run the controller with command-line arguments
 	return cliController.Run(args)

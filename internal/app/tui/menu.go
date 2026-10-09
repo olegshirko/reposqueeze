@@ -20,6 +20,8 @@ const (
 	cmdSyncInit         = "sync-init"
 	cmdSyncLog          = "sync-log"
 	cmdPullCommit       = "pull-commit"
+	cmdClipPush         = "clip-push"
+	cmdClipPull         = "clip-pull"
 
 	// Confirmation steps of the sync and pull-commit wizards (not in the menu).
 	cmdSyncConfirm = "sync-confirm"
@@ -47,6 +49,8 @@ func newMenuModel() menuModel {
 		menuItem{title: "Sync status", description: "Show what sync would pull, push and merge", cmd: cmdSyncStatus},
 		menuItem{title: "Sync init", description: "Set which local commit/branch matches which GitLab commit/branch", cmd: cmdSyncInit},
 		menuItem{title: "Sync log", description: "Journal of matching local <-> GitLab commits", cmd: cmdSyncLog},
+		menuItem{title: "Clipboard → GitLab", description: "Send this Mac's clipboard (text, images, files) to the other Mac, encrypted", cmd: cmdClipPush},
+		menuItem{title: "Clipboard ← GitLab", description: "Replace this Mac's clipboard with the one sent from the other Mac", cmd: cmdClipPull},
 		menuItem{title: "Pull commits", description: "Pick GitLab commits from a list and bring them in, one local commit each", cmd: cmdPullCommit},
 		menuItem{title: "Create from local", description: "Create orphan branch from local repo and push to GitLab", cmd: cmdCreateFromLocal},
 		menuItem{title: "Create from GitLab", description: "Download GitLab repo archive into local orphan branch", cmd: cmdCreateFromGitlab},
