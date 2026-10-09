@@ -140,12 +140,19 @@ var protectedRe = regexp.MustCompile(`(?i)protected branch|not allowed to force 
 // that GitLab makes it the default (protected) branch instead of the clip
 // branch, which must accept force pushes.
 func (s *GitStore) ensureDefaultBranch(ctx context.Context) error {
+	// Checked once per remote: it costs a round trip to GitLab.
+	marker := filepath.Join(s.Dir, "reposqueeze-remote-ready")
+	if data, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(data)) == s.Remote {
+		return nil
+	}
+	ready := func() { _ = os.WriteFile(marker, []byte(s.Remote+"\n"), 0o600) }
 	out, err := s.git(ctx, nil, "ls-remote", "--heads", s.Remote)
 	if err != nil && !notThere.MatchString(err.Error()) {
 		return err
 	}
 	if strings.TrimSpace(string(out)) != "" {
-		return nil // the project already has branches
+		ready() // the project already has branches
+		return nil
 	}
 	emptyTree, err := s.git(ctx, []byte{}, "mktree")
 	if err != nil {
@@ -156,8 +163,11 @@ func (s *GitStore) ensureDefaultBranch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.git(ctx, nil, "push", "--quiet", s.Remote, strings.TrimSpace(string(init))+":refs/heads/main")
-	return err
+	if _, err := s.git(ctx, nil, "push", "--quiet", s.Remote, strings.TrimSpace(string(init))+":refs/heads/main"); err != nil {
+		return err
+	}
+	ready()
+	return nil
 }
 
 // pushOnTop is the fallback for a branch that refuses force pushes: the new

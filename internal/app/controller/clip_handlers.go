@@ -58,23 +58,28 @@ func (c *CLIController) handleClip(args []string) error {
 		return err
 	}
 
+	took := func(start time.Time) string {
+		return fmt.Sprintf(" (%.1f s)", time.Since(start).Seconds())
+	}
 	switch sub {
 	case "push":
+		start := time.Now()
 		res, err := uc.Push(ctx, cfg)
 		if err != nil {
 			tell("not sent: " + err.Error())
 			return err
 		}
-		tell("sent: " + res.Summary)
+		tell("sent: " + res.Summary + took(start))
 		return nil
 
 	case "pull":
+		start := time.Now()
 		res, err := uc.Pull(ctx, cfg)
 		if err != nil {
 			tell("not received: " + err.Error())
 			return err
 		}
-		tell("received: " + res.Describe(time.Now()))
+		tell("received: " + res.Describe(time.Now()) + took(start))
 		return nil
 
 	case "watch":
@@ -98,7 +103,7 @@ func (c *CLIController) handleClip(args []string) error {
 				case err != nil:
 					tell("not received: " + err.Error())
 				case kind == "push":
-					tell("sent: " + res.Summary)
+					tell("sent: " + res.Summary + took(res.At))
 				default:
 					tell("received: " + res.Describe(time.Now()))
 				}

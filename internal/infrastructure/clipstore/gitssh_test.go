@@ -108,3 +108,18 @@ func TestGitStore_TokenOnlyForHTTPS(t *testing.T) {
 	s.Remote = "git@gitlab.com:u/clipboard.git"
 	assert.Empty(t, s.authEnv(), "SSH remotes never get the token")
 }
+
+func TestGitStore_ChecksBranchesOnlyOnce(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	remote := filepath.Join(dir, "remote.git")
+	require.NoError(t, exec.Command("git", "init", "-q", "--bare", remote).Run())
+	s := NewGitStore(remote, "clip", filepath.Join(dir, "cache"))
+	require.NoError(t, s.Put(ctx, []byte("1"), []byte("m")))
+
+	// Remove main on the remote: a second check would recreate it.
+	require.NoError(t, exec.Command("git", "--git-dir", remote, "branch", "-D", "main").Run())
+	require.NoError(t, s.Put(ctx, []byte("2"), []byte("m")))
+	out, _ := exec.Command("git", "--git-dir", remote, "for-each-ref", "--format=%(refname:short)", "refs/heads").Output()
+	assert.Equal(t, "clip", strings.TrimSpace(string(out)), "no extra ls-remote round trip after the first push")
+}
