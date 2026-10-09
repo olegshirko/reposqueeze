@@ -20,7 +20,6 @@ func (c *CLIController) handleSyncInit(args []string) error {
 	remoteBranch := fs.String("remote-branch", "", "GitLab branch to mirror to (default: same as local branch)")
 	localSHA := fs.String("local-sha", "", "Local commit mirroring starts from (default: local branch head)")
 	remoteSHA := fs.String("remote-sha", "", "GitLab commit with the same content (default: GitLab branch head)")
-	recoverPoint := fs.Bool("recover", false, "Rebuild the sync point from the latest Reposqueeze-Remote commit trailer")
 	force := fs.Bool("force", false, "Overwrite an existing mirror with the same name")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
@@ -36,7 +35,6 @@ func (c *CLIController) handleSyncInit(args []string) error {
 		RemoteBranch: *remoteBranch,
 		LocalSHA:     *localSHA,
 		RemoteSHA:    *remoteSHA,
-		Recover:      *recoverPoint,
 		Force:        *force,
 	})
 	return err

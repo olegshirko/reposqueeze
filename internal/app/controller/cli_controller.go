@@ -428,7 +428,7 @@ func (c *CLIController) printUsage() {
 	fmt.Println("                        Pushes all tracked files from a local branch to GitLab as one commit.")
 	fmt.Println("")
 	fmt.Println("Two-way sync (a mirror = local branch <-> GitLab branch, with a journal of matching commits):")
-	fmt.Println("  sync-init           <path> [--remote-branch <name>] [--local-branch <name>] [--local-sha <sha>] [--remote-sha <sha>] [--name <mirror>] [--recover] [--force]")
+	fmt.Println("  sync-init           <path> [--remote-branch <name>] [--local-branch <name>] [--local-sha <sha>] [--remote-sha <sha>] [--name <mirror>] [--force]")
 	fmt.Println("                        Records which local commit corresponds to which GitLab commit (default: both heads).")
 	fmt.Println("  status              <path> [--mirror <name>] [--replay]")
 	fmt.Println("                        Shows what sync would pull, push and merge.")

@@ -38,15 +38,14 @@ func TestReplay_PullsCommitsOneByOne(t *testing.T) {
 		"chore: drop b|Alice Smith|2024-01-04T10:00:00Z",
 	}, e.logLines(3))
 
-	// Each local commit records the GitLab commit it came from; the last one is
-	// also the new sync point.
+	// Messages are exactly the GitLab ones; the correspondence lives in the
+	// state, and the last replayed commit is the new sync point.
 	for i, pair := range res.Replayed {
-		body := e.run("log", "-1", "--format=%B", pair.LocalSHA)
-		assert.Contains(t, body, TrailerReplayedFrom+": myproj/release@"+e.gl.commits[i+1].id)
 		assert.Equal(t, e.gl.commits[i+1].id, pair.RemoteSHA)
+		assert.NotContains(t, e.run("log", "-1", "--format=%B", pair.LocalSHA), "Reposqueeze")
 	}
-	assert.Contains(t, e.run("log", "-1", "--format=%B"), TrailerRemote+": myproj/release@"+e.gl.head().id)
-	assert.Contains(t, e.run("log", "-1", "--format=%B", res.Replayed[0].LocalSHA), "Longer body.")
+	assert.Equal(t, "feat: change a\n\nLonger body.", e.run("log", "-1", "--format=%B", res.Replayed[0].LocalSHA))
+	assert.Equal(t, res.Replayed[2].LocalSHA, e.run("rev-parse", "HEAD"), "no extra sync commit")
 
 	// Each commit holds only its own change.
 	assert.Equal(t, "a.txt", e.run("show", "--format=", "--name-only", res.Replayed[0].LocalSHA))
@@ -76,11 +75,11 @@ func TestReplay_WithLocalChangesElsewhere(t *testing.T) {
 	assert.Equal(t, 2, res.Pushed)
 	e.assertInSync()
 
-	subjects := strings.Split(e.run("log", "-n", "4", "--reverse", "--format=%s"), "\n")
-	require.Len(t, subjects, 4)
-	assert.Equal(t, []string{"local work", "remote 1", "remote 2"}, subjects[:3])
-	assert.Equal(t, "sync main with myproj/release", subjects[3])
-	assert.Contains(t, e.run("log", "-1", "--format=%B"), TrailerRemote+": myproj/release@"+e.gl.head().id)
+	subjects := strings.Split(e.run("log", "-n", "3", "--reverse", "--format=%s"), "\n")
+	assert.Equal(t, []string{"local work", "remote 1", "remote 2"}, subjects)
+	mirrors, _ := e.uc.Mirrors(e.repo)
+	assert.Equal(t, e.run("rev-parse", "HEAD"), mirrors[0].Current().LocalSHA)
+	assert.Equal(t, e.gl.head().id, mirrors[0].Current().RemoteSHA)
 
 	// The next sync has nothing to do: the pair is exact.
 	plan, err := e.uc.Plan(context.Background(), SyncInput{RepoPath: e.repo, Replay: true})
@@ -171,17 +170,23 @@ func TestReplay_DryRunAndRevertedCommits(t *testing.T) {
 	e.assertInSync()
 }
 
-func TestReplay_RecoverFromTrailers(t *testing.T) {
+func TestReplay_PickedRecordsFollowHistory(t *testing.T) {
 	e := newSyncEnv(t, map[string]string{"a.txt": "a"})
-	e.init()
-	e.gl.editAs("Alice Smith", "remote", map[string]string{"a.txt": "a1"})
-	e.sync(SyncInput{Replay: true})
+	e.gl.editAs("Alice Smith", "remote", map[string]string{"one.txt": "1"})
+	id := e.gl.head().id
 
-	m, err := e.uc.Init(context.Background(), SyncInitInput{RepoPath: e.repo, RemoteBranch: "release", Recover: true, Force: true})
+	e.pick(PullCommitInput{Commits: []string{id}})
+	_, picked, err := e.picker().ListCommits(e.repo, "release", 10)
 	require.NoError(t, err)
-	assert.Equal(t, e.run("rev-parse", "HEAD"), m.Origin.LocalSHA)
-	assert.Equal(t, e.gl.head().id, m.Origin.RemoteSHA)
-	assert.Empty(t, m.Journal)
+	assert.Contains(t, picked, id)
+
+	// Dropping the local commit makes the GitLab commit pickable again.
+	e.run("reset", "-q", "--hard", "HEAD~1")
+	_, picked, err = e.picker().ListCommits(e.repo, "release", 10)
+	require.NoError(t, err)
+	assert.NotContains(t, picked, id)
+	res := e.pick(PullCommitInput{Commits: []string{id}})
+	assert.Len(t, res.Picked, 1)
 }
 
 // installCommitMsgHook enforces "<type>: <title> TASK-<n>" like a team hook would.

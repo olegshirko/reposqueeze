@@ -46,7 +46,7 @@ func TestSyncGit_DiffCommitRestore(t *testing.T) {
 	assert.Equal(t, []string{"test.txt"}, wt.Changed)
 	assert.Equal(t, []string{"dir/new file.txt"}, wt.Untracked)
 
-	head, err := g.CommitPaths(repo, "msg\n\nReposqueeze-Remote: p/main@abc", []string{"dir/new file.txt", "test.txt"}, gateway.CommitOptions{})
+	head, err := g.CommitPaths(repo, "msg", []string{"dir/new file.txt", "test.txt"}, gateway.CommitOptions{})
 	require.NoError(t, err)
 
 	files, err := g.DiffFiles(repo, base, head)
@@ -60,11 +60,6 @@ func TestSyncGit_DiffCommitRestore(t *testing.T) {
 	_, found, err = g.FileAtRef(repo, base, "dir/new file.txt")
 	require.NoError(t, err)
 	assert.False(t, found)
-
-	sha, value, err := g.FindLastTrailer(repo, "HEAD", "Reposqueeze-Remote")
-	require.NoError(t, err)
-	assert.Equal(t, head, sha)
-	assert.Equal(t, "p/main@abc", value)
 
 	ok, err := g.IsAncestor(repo, base, head)
 	require.NoError(t, err)

@@ -384,8 +384,10 @@ func TestSync_PullOnly(t *testing.T) {
 	assert.Empty(t, res.RemoteCommit)
 	e.assertInSync()
 
-	// The local sync commit carries the GitLab SHA as a trailer.
-	assert.Contains(t, e.run("log", "-1", "--format=%B"), TrailerRemote+": myproj/release@"+e.gl.head().id)
+	// The local commit has only the plain message, nothing appended.
+	msg := e.run("log", "-1", "--format=%B")
+	assert.True(t, strings.HasPrefix(msg, "sync main with myproj/release"), msg)
+	assert.NotContains(t, msg, "Reposqueeze")
 }
 
 func TestSync_PushOnlyAndJournal(t *testing.T) {
@@ -400,7 +402,8 @@ func TestSync_PushOnlyAndJournal(t *testing.T) {
 	res := e.sync(SyncInput{})
 	assert.Equal(t, 3, res.Pushed)
 	e.assertInSync()
-	assert.Contains(t, e.gl.head().message, TrailerSource+": main@")
+	assert.NotContains(t, e.gl.head().message, "Reposqueeze")
+	assert.Equal(t, "local work", e.run("log", "-1", "--format=%s"), "no extra local commit when only pushing")
 
 	mirrors, err := e.uc.Mirrors(e.repo)
 	require.NoError(t, err)
@@ -624,7 +627,7 @@ func TestSync_RemoteMovedDuringPush(t *testing.T) {
 	e.assertInSync()
 }
 
-func TestSync_WrongBranchAndRecover(t *testing.T) {
+func TestSync_WrongBranchAndReset(t *testing.T) {
 	e := newSyncEnv(t, map[string]string{"a.txt": "a"})
 	e.init()
 	e.gl.edit(map[string]string{"a.txt": "a-remote"})
@@ -637,10 +640,11 @@ func TestSync_WrongBranchAndRecover(t *testing.T) {
 	assert.Contains(t, err.Error(), "checked out")
 	e.run("checkout", "-q", "main")
 
-	// Lose the state file and rebuild it from the commit trailer.
+	// Lose the state file and set the sync point again explicitly.
 	gitDir := e.run("rev-parse", "--absolute-git-dir")
 	require.NoError(t, os.RemoveAll(filepath.Join(gitDir, "reposqueeze")))
-	m, err := e.uc.Init(context.Background(), SyncInitInput{RepoPath: e.repo, RemoteBranch: "release", Recover: true})
+	m, err := e.uc.Init(context.Background(), SyncInitInput{RepoPath: e.repo, RemoteBranch: "release",
+		LocalSHA: syncCommit, RemoteSHA: e.gl.head().id[:8]})
 	require.NoError(t, err)
 	assert.Equal(t, syncCommit, m.Origin.LocalSHA)
 	assert.Equal(t, e.gl.head().id, m.Origin.RemoteSHA)

@@ -83,10 +83,38 @@ func (m *Mirror) Current() SyncPoint {
 	return m.Origin
 }
 
+// PendingPick is a GitLab commit whose pull stopped on conflicts; the first
+// commit the user makes after Base is taken as its local counterpart.
+type PendingPick struct {
+	CommitPair
+	Base string `json:"base"` // local HEAD when the pick stopped
+}
+
 // MirrorSet is everything stored for one local repository.
 type MirrorSet struct {
 	Version int      `json:"version"`
 	Mirrors []Mirror `json:"mirrors"`
+	// Picked records GitLab commits brought in as local commits
+	// (pull-commit, sync --replay), so they are not brought in twice.
+	Picked      []CommitPair `json:"picked,omitempty"`
+	PendingPick *PendingPick `json:"pending_pick,omitempty"`
+}
+
+// AddPicked records GitLab -> local commit pairs, replacing older records
+// of the same GitLab commit.
+func (s *MirrorSet) AddPicked(pairs ...CommitPair) {
+	for _, p := range pairs {
+		replaced := false
+		for i := range s.Picked {
+			if s.Picked[i].RemoteSHA == p.RemoteSHA {
+				s.Picked[i] = p
+				replaced = true
+			}
+		}
+		if !replaced {
+			s.Picked = append(s.Picked, p)
+		}
+	}
 }
 
 // Find returns the mirror with the given name, or, when name is empty, the only

@@ -14,11 +14,8 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/pkg/logger"
 )
 
-// Commit trailers that tie local and GitLab commits together.
-const (
-	TrailerRemote = "Reposqueeze-Remote" // on local sync commits: <project>/<branch>@<gitlab sha>
-	TrailerSource = "Reposqueeze-Source" // on GitLab commits:     <local branch>@<local sha>
-)
+// resetHint tells how to re-establish the sync point manually.
+const resetHint = "set the sync point again with `sync-init --local-sha <local commit> --remote-sha <gitlab commit> --force`"
 
 // Conflict strategies.
 const (
@@ -54,7 +51,6 @@ type SyncInitInput struct {
 	RemoteBranch string // default: same as local branch
 	LocalSHA     string // local commit the mirroring starts from (default: local branch head)
 	RemoteSHA    string // GitLab commit with the same content (default: remote branch head)
-	Recover      bool   // rebuild the starting point from Reposqueeze-Remote trailers
 	Force        bool   // overwrite an existing mirror with the same name
 }
 
@@ -91,21 +87,6 @@ func (uc *SyncUseCase) Init(ctx context.Context, in SyncInitInput) (*entity.Mirr
 	}
 
 	localRef, remoteRef := in.LocalSHA, in.RemoteSHA
-	if in.Recover {
-		sha, value, err := uc.git.FindLastTrailer(in.RepoPath, localBranch, TrailerRemote)
-		if err != nil {
-			return nil, err
-		}
-		if sha == "" {
-			return nil, fmt.Errorf("no commit with %s trailer found on %s", TrailerRemote, localBranch)
-		}
-		wantPrefix := project.Name + "/" + remoteBranch + "@"
-		if !strings.HasPrefix(value, wantPrefix) {
-			return nil, fmt.Errorf("latest %s trailer %q does not belong to %s", TrailerRemote, value, strings.TrimSuffix(wantPrefix, "@"))
-		}
-		localRef, remoteRef = sha, strings.TrimPrefix(value, wantPrefix)
-		uc.logger.Infof("Recovered sync point from commit %s", short(sha))
-	}
 	if localRef == "" {
 		localRef = localBranch
 	}
@@ -488,14 +469,13 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 
 	// The local sync commit message is checked by the commit-msg hook before
 	// anything is pushed, so a rejected message cannot strand a pushed change.
-	localMsg := func(remote string) string {
-		return in.Format.Apply(fmt.Sprintf("sync %s with %s/%s\n\n%s..%s from GitLab\n\n%s: %s/%s@%s",
-			m.LocalBranch, m.ProjectName, m.RemoteBranch, short(base.RemoteSHA), short(plan.RemoteHead),
-			TrailerRemote, m.ProjectName, m.RemoteBranch, remote))
-	}
-	if err := checkMessages(uc.git, in.RepoPath, []string{localMsg(plan.RemoteHead)}); err != nil {
-		restore()
-		return res, err
+	localMsg := in.Format.Apply(fmt.Sprintf("sync %s with %s/%s\n\n%s..%s from GitLab",
+		m.LocalBranch, m.ProjectName, m.RemoteBranch, short(base.RemoteSHA), short(plan.RemoteHead)))
+	if len(touched) > 0 {
+		if err := checkMessages(uc.git, in.RepoPath, []string{localMsg}); err != nil {
+			restore()
+			return res, err
+		}
 	}
 
 	// 2. Push local changes and merge results to GitLab.
@@ -514,8 +494,6 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		if msg == "" {
 			msg = fmt.Sprintf("Sync from %s %s..%s", m.LocalBranch, short(base.LocalSHA), short(plan.LocalHead))
 		}
-		msg += fmt.Sprintf("\n\n%s: %s@%s", TrailerSource, m.LocalBranch, plan.LocalHead)
-
 		created, err := uc.gitlab.CommitFilesViaAPI(strconv.Itoa(m.ProjectID), m.RemoteBranch, msg, actions)
 		if err != nil {
 			restore()
@@ -534,13 +512,16 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		uc.logger.Infof("Pushed %d change(s) to %s as %s", res.Pushed, m.RemoteBranch, short(created.ID))
 	}
 
-	// 3. Record the sync point locally. The commit is created even when only
-	// pushing, so local history shows every sync and can rebuild the mirror.
-	localCommit, err := uc.git.CommitPaths(in.RepoPath, localMsg(newRemote), touched, gateway.CommitOptions{AllowEmpty: true})
-	if err != nil {
-		return res, fmt.Errorf("pushed to GitLab (%s) but the local commit failed; commit the working tree manually and run `sync-init --recover --force` afterwards: %w", short(newRemote), err)
+	// 3. Commit what came from GitLab. When only pushing, the current local
+	// commit already matches GitLab and becomes the sync point.
+	localCommit := plan.LocalHead
+	if len(touched) > 0 {
+		localCommit, err = uc.git.CommitPaths(in.RepoPath, localMsg, touched, gateway.CommitOptions{})
+		if err != nil {
+			return res, fmt.Errorf("pushed to GitLab (%s) but the local commit failed; commit the working tree manually, then %s: %w", short(newRemote), resetHint, err)
+		}
+		res.LocalCommit = localCommit
 	}
-	res.LocalCommit = localCommit
 
 	// 4. Leave unresolved conflicts in the working tree.
 	for _, w := range conflictWrites {
@@ -569,7 +550,7 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		m.PendingMerge = &entity.PendingMerge{RemoteSHA: plan.RemoteHead, Files: res.Conflicts, At: entry.At}
 	}
 	if err := uc.store.Save(in.RepoPath, set); err != nil {
-		return res, fmt.Errorf("sync done but saving mirror state failed (recover with `sync-init --recover --force`): %w", err)
+		return res, fmt.Errorf("sync done but saving mirror state failed; %s: %w", resetHint, err)
 	}
 	return res, nil
 }

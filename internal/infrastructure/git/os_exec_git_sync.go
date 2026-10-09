@@ -212,42 +212,6 @@ func (g *OSExecGitGateway) LogCommits(repoPath, ref string, limit int) ([]gatewa
 	return result, nil
 }
 
-// FindLastTrailer returns the newest commit reachable from ref that carries the trailer key.
-func (g *OSExecGitGateway) FindLastTrailer(repoPath, ref, key string) (string, string, error) {
-	format := fmt.Sprintf("--format=%%H%%x00%%(trailers:key=%s,valueonly,separator=%%x2C)%%x00", key)
-	out, err := g.git(repoPath, "log", format, ref)
-	if err != nil {
-		return "", "", err
-	}
-	fields := strings.Split(string(out), "\x00")
-	for i := 0; i+1 < len(fields); i += 2 {
-		value := strings.TrimSpace(fields[i+1])
-		if value != "" {
-			return strings.TrimSpace(fields[i]), value, nil
-		}
-	}
-	return "", "", nil
-}
-
-// TrailerValues lists commits in revRange that carry the trailer key (newest first).
-func (g *OSExecGitGateway) TrailerValues(repoPath, revRange, key string) ([]gateway.TrailerRef, error) {
-	format := fmt.Sprintf("--format=%%H%%x00%%(trailers:key=%s,valueonly,separator=%%x2C)%%x00", key)
-	out, err := g.git(repoPath, "log", format, revRange)
-	if err != nil {
-		return nil, err
-	}
-	var refs []gateway.TrailerRef
-	fields := strings.Split(string(out), "\x00")
-	for i := 0; i+1 < len(fields); i += 2 {
-		for _, v := range strings.Split(strings.TrimSpace(fields[i+1]), ",") {
-			if v = strings.TrimSpace(v); v != "" {
-				refs = append(refs, gateway.TrailerRef{Commit: strings.TrimSpace(fields[i]), Value: v})
-			}
-		}
-	}
-	return refs, nil
-}
-
 // IsAncestor reports whether ancestor is reachable from descendant.
 func (g *OSExecGitGateway) IsAncestor(repoPath, ancestor, descendant string) (bool, error) {
 	cmd := exec.Command("git", "-C", repoPath, "merge-base", "--is-ancestor", ancestor, descendant)

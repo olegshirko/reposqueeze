@@ -39,22 +39,6 @@ func (uc *SyncUseCase) remoteCommits(ctx context.Context, m *entity.Mirror, from
 	return out, nil
 }
 
-// alreadyPicked maps GitLab commit SHAs to local commits created from them
-// (e.g. by pull-commit) in the given local range.
-func alreadyPicked(git gateway.SyncGit, repoPath, revRange string) (map[string]string, error) {
-	refs, err := git.TrailerValues(repoPath, revRange, TrailerReplayedFrom)
-	if err != nil {
-		return nil, err
-	}
-	picked := make(map[string]string, len(refs))
-	for _, r := range refs {
-		if at := strings.LastIndex(r.Value, "@"); at >= 0 {
-			picked[r.Value[at+1:]] = r.Commit
-		}
-	}
-	return picked, nil
-}
-
 // replay pulls GitLab commits one by one as separate local commits and pushes
 // local changes as one GitLab commit.
 //
@@ -63,6 +47,8 @@ func alreadyPicked(git gateway.SyncGit, repoPath, revRange string) (map[string]s
 // nothing is changed. Otherwise local changes are pushed first, then the local
 // commits are created, so a failed push leaves the repository untouched.
 // GitLab commits already brought in with pull-commit are not replayed again.
+// Commit messages are the GitLab ones (formatted with --type/--task), nothing
+// is added to them; the correspondence is kept in the mirror state.
 func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.MirrorSet, m *entity.Mirror,
 	plan *SyncPlan, strategy string, res *SyncResult) (*SyncResult, error) {
 
@@ -80,7 +66,7 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 	}
 	trusted := func(path string) bool { return !localTouched[path] }
 
-	picked, err := alreadyPicked(uc.git, in.RepoPath, base.LocalSHA+".."+plan.LocalHead)
+	picked, err := pickedCommits(uc.git, set, in.RepoPath, plan.LocalHead)
 	if err != nil {
 		return res, err
 	}
@@ -157,27 +143,11 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 
 	// Local commit messages are prepared (and checked by the commit-msg hook)
 	// before anything changes.
-	origin := m.ProjectName + "/" + m.RemoteBranch
 	messages := make([]string, len(steps))
 	for i, st := range steps {
-		msg := in.Format.Apply(replayMessage(st.commit.CommitInfo, origin))
-		if i == len(steps)-1 && !pushed {
-			// Without a push this commit matches GitLab exactly: it is the new sync point.
-			msg += fmt.Sprintf("\n%s: %s@%s", TrailerRemote, origin, plan.RemoteHead)
-		}
-		messages[i] = msg
+		messages[i] = in.Format.Apply(replayMessage(st.commit.CommitInfo))
 	}
-	needMarker := pushed || len(steps) == 0
-	markerMsg := func(remote string) string {
-		return in.Format.Apply(fmt.Sprintf("sync %s with %s\n\n%s..%s <-> %s..%s\n\n%s: %s@%s",
-			m.LocalBranch, origin, short(base.LocalSHA), short(plan.LocalHead), short(base.RemoteSHA), short(plan.RemoteHead),
-			TrailerRemote, origin, remote))
-	}
-	toCheck := append([]string(nil), messages...)
-	if needMarker {
-		toCheck = append(toCheck, markerMsg(plan.RemoteHead))
-	}
-	if err := checkMessages(uc.git, in.RepoPath, toCheck); err != nil {
+	if err := checkMessages(uc.git, in.RepoPath, messages); err != nil {
 		return res, err
 	}
 	var writes []string
@@ -196,7 +166,6 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 		if msg == "" {
 			msg = fmt.Sprintf("Sync from %s %s..%s", m.LocalBranch, short(base.LocalSHA), short(plan.LocalHead))
 		}
-		msg += fmt.Sprintf("\n\n%s: %s@%s", TrailerSource, m.LocalBranch, plan.LocalHead)
 		created, err := uc.gitlab.CommitFilesViaAPI(strconv.Itoa(m.ProjectID), m.RemoteBranch, msg, actions)
 		if err != nil {
 			return res, fmt.Errorf("push to GitLab failed, nothing was changed: %w", err)
@@ -213,6 +182,8 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 	}
 
 	// 3. One local commit per GitLab commit, with its message, author and date.
+	// The last one (or the current HEAD when there are none) matches GitLab's
+	// new head and becomes the sync point.
 	res.Replayed = append(res.Replayed, earlier...)
 	lastLocal := plan.LocalHead
 	for i, st := range steps {
@@ -233,15 +204,6 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 	}
 	sort.Strings(res.Merged)
 
-	if needMarker {
-		// Local commits carry GitLab's changes; GitLab's new commit carries
-		// local ones. An empty commit marks the point where both match.
-		sha, err := uc.git.CommitPaths(in.RepoPath, markerMsg(newRemote), nil, gateway.CommitOptions{AllowEmpty: true})
-		if err != nil {
-			return res, uc.replayInterrupted(len(steps), len(steps), newRemote, err)
-		}
-		lastLocal = sha
-	}
 	res.LocalCommit = lastLocal
 
 	// 4. Journal.
@@ -260,8 +222,9 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 	}
 	m.Journal = append(m.Journal, entry)
 	m.PendingMerge = nil
+	set.AddPicked(res.Replayed[len(earlier):]...)
 	if err := uc.store.Save(in.RepoPath, set); err != nil {
-		return res, fmt.Errorf("sync done but saving mirror state failed (recover with `sync-init --recover --force`): %w", err)
+		return res, fmt.Errorf("sync done but saving mirror state failed; %s: %w", resetHint, err)
 	}
 	return res, nil
 }
@@ -269,6 +232,6 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 // replayInterrupted reports a failure after GitLab may already have been updated.
 func (uc *SyncUseCase) replayInterrupted(done, total int, remote string, err error) error {
 	return fmt.Errorf("replay interrupted after %d of %d commit(s); GitLab is at %s. "+
-		"Check `git status`, commit what is left and run `sync-init --recover --force`: %w",
-		done, total, short(remote), err)
+		"Check `git status`, commit what is left, then %s: %w",
+		done, total, short(remote), resetHint, err)
 }

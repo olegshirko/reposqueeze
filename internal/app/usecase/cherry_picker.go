@@ -7,10 +7,6 @@ import (
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
 
-// TrailerReplayedFrom marks a local commit created from a GitLab commit
-// (by sync --replay or pull-commit). Value: <project>[/<branch>]@<gitlab sha>.
-const TrailerReplayedFrom = "Reposqueeze-Replayed-From"
-
 // fileState is the content of a file at some point; nil means "absent".
 type fileState = []byte
 
@@ -220,13 +216,12 @@ func writeStep(repoPath string, st pickStep) error {
 	return nil
 }
 
-// replayMessage is the original GitLab message plus the provenance trailer.
-func replayMessage(c gateway.CommitInfo, origin string) string {
-	msg := trimMessage(c.Message)
-	if msg == "" {
-		msg = commitTitle(c)
+// replayMessage is the original GitLab commit message.
+func replayMessage(c gateway.CommitInfo) string {
+	if msg := trimMessage(c.Message); msg != "" {
+		return msg
 	}
-	return msg + fmt.Sprintf("\n\n%s: %s@%s", TrailerReplayedFrom, origin, c.ID)
+	return commitTitle(c)
 }
 
 func trimMessage(s string) string {

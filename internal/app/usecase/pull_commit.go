@@ -19,7 +19,7 @@ import (
 type PullCommitUseCase struct {
 	git    gateway.SyncGit
 	gitlab gateway.GitLabGateway
-	store  gateway.MirrorStore // optional: supplies the remembered commit format
+	store  gateway.MirrorStore // remembers picked commits and the commit format
 	logger logger.Logger
 }
 
@@ -70,7 +70,15 @@ func (uc *PullCommitUseCase) ListCommits(repoPath, branch string, limit int) ([]
 	if err != nil {
 		return nil, nil, err
 	}
-	picked, err := alreadyPicked(uc.git, repoPath, "HEAD")
+	set, err := uc.store.Load(repoPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	head, err := uc.git.RevParse(repoPath, "HEAD")
+	if err != nil {
+		return nil, nil, err
+	}
+	picked, err := pickedCommits(uc.git, set, repoPath, head)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -124,9 +132,19 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 	}
 
 	res := &PullCommitResult{}
-	picked, err := alreadyPicked(uc.git, in.RepoPath, "HEAD")
+	set, err := uc.store.Load(in.RepoPath)
 	if err != nil {
 		return nil, err
+	}
+	picked, err := pickedCommits(uc.git, set, in.RepoPath, head)
+	if err != nil {
+		return nil, err
+	}
+	if pp := set.PendingPick; pp != nil {
+		// Still unresolved with a clean tree and no new commit: the user
+		// discarded the stopped pick, so it may be picked again.
+		uc.logger.Infof("Previous stopped pick of %s %s was discarded", short(pp.RemoteSHA), pp.Title)
+		set.PendingPick = nil
 	}
 	var todo []RemoteCommit
 	for _, c := range commits {
@@ -140,7 +158,7 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 
 	messages := make([]string, len(todo))
 	for i, c := range todo {
-		messages[i] = in.Format.Apply(replayMessage(c.CommitInfo, project.Name))
+		messages[i] = in.Format.Apply(replayMessage(c.CommitInfo))
 	}
 	if err := checkMessages(uc.git, in.RepoPath, messages); err != nil {
 		return nil, err
@@ -182,6 +200,13 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 				return res, fmt.Errorf("commit %s %s conflicts with local changes in %s; %d commit(s) picked before it",
 					short(c.ID), commitTitle(c.CommitInfo), conflictPaths(conflicts), len(res.Picked))
 			}
+			set.PendingPick = &entity.PendingPick{
+				CommitPair: entity.CommitPair{RemoteSHA: c.ID, Title: commitTitle(c.CommitInfo)},
+				Base:       head,
+			}
+			if err := uc.store.Save(in.RepoPath, set); err != nil {
+				return res, err
+			}
 			return uc.stop(in.RepoPath, res, c, conflicts, messages[i], todo[i+1:])
 		}
 
@@ -189,7 +214,13 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 		if err != nil {
 			return res, err
 		}
-		res.Picked = append(res.Picked, entity.CommitPair{RemoteSHA: c.ID, LocalSHA: sha, Title: commitTitle(c.CommitInfo)})
+		head = sha
+		pair := entity.CommitPair{RemoteSHA: c.ID, LocalSHA: sha, Title: commitTitle(c.CommitInfo)}
+		res.Picked = append(res.Picked, pair)
+		set.AddPicked(pair)
+		if err := uc.store.Save(in.RepoPath, set); err != nil {
+			return res, err
+		}
 		uc.logger.Infof("Picked %s -> %s %s", short(c.ID), short(sha), firstLine(messages[i]))
 	}
 	return res, nil
@@ -289,9 +320,6 @@ func (uc *PullCommitUseCase) saveMessage(repoPath, msg string) (string, error) {
 
 // rememberedFormat returns the commit format stored in the branch's mirror, if any.
 func (uc *PullCommitUseCase) rememberedFormat(repoPath, branch string) entity.CommitFormat {
-	if uc.store == nil {
-		return entity.CommitFormat{}
-	}
 	set, err := uc.store.Load(repoPath)
 	if err != nil {
 		return entity.CommitFormat{}

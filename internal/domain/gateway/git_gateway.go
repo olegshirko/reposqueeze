@@ -68,10 +68,6 @@ type SyncGit interface {
 	StashPush(repoPath, message string) (stashed bool, err error)
 	StashPop(repoPath string) error
 	LogCommits(repoPath, ref string, limit int) ([]CommitInfo, error)
-	// FindLastTrailer returns the newest commit reachable from ref that has the trailer key.
-	FindLastTrailer(repoPath, ref, key string) (sha, value string, err error)
-	// TrailerValues lists commits in revRange (e.g. "a..b") that carry the trailer key.
-	TrailerValues(repoPath, revRange, key string) ([]TrailerRef, error)
 	IsAncestor(repoPath, ancestor, descendant string) (bool, error)
 	// CheckCommitMessage runs the repository's commit-msg hook (if any) on msg
 	// without committing.
@@ -82,12 +78,6 @@ type SyncGit interface {
 type MirrorStore interface {
 	Load(repoPath string) (*entity.MirrorSet, error)
 	Save(repoPath string, set *entity.MirrorSet) error
-}
-
-// TrailerRef is a commit carrying a given trailer, with the trailer's value.
-type TrailerRef struct {
-	Commit string
-	Value  string
 }
 
 // WorkingTree describes uncommitted state of a repository.

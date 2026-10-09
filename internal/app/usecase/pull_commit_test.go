@@ -40,7 +40,7 @@ func TestPullCommit_SelectedCommitsOnly(t *testing.T) {
 	assert.Equal(t, []string{"fix: one TASK-NUMBER01|Alice Smith", "fix: three TASK-NUMBER01|Bob Jones"},
 		strings.Split(e.run("log", "-n", "2", "--reverse", "--format=%s|%an"), "\n"))
 	assert.Contains(t, e.run("log", "-1", "--format=%B"), "Why it matters.")
-	assert.Contains(t, e.run("log", "-1", "--format=%B"), TrailerReplayedFrom+": myproj@"+three)
+	assert.Equal(t, "fix: three TASK-NUMBER01\n\nWhy it matters.", e.run("log", "-1", "--format=%B"), "nothing appended")
 	assert.Equal(t, "1", e.read("one.txt"))
 	assert.Equal(t, "b3", e.read("b.txt"))
 	assert.Equal(t, "a", e.read("a.txt"), "unselected commit is not applied")
@@ -97,9 +97,17 @@ func TestPullCommit_ConflictStopsLikeCherryPick(t *testing.T) {
 	e.write("f.txt", "resolved\n")
 	e.run("add", "-A")
 	e.run("commit", "-q", "-F", filepath.Join(gitDir, "reposqueeze", "PICK_MSG"))
+	clash := res.StoppedAt.ID
 	res = e.pick(PullCommitInput{Commits: res.Remaining})
 	require.Len(t, res.Picked, 1)
 	assert.Equal(t, "g2", e.read("g.txt"))
+
+	// The manually completed pick is known as picked.
+	_, picked, err := e.picker().ListCommits(e.repo, "release", 10)
+	require.NoError(t, err)
+	assert.Contains(t, picked, clash)
+	res = e.pick(PullCommitInput{Commits: []string{clash}})
+	assert.Len(t, res.Skipped, 1)
 }
 
 func TestPullCommit_AbortAndDirtyTree(t *testing.T) {
@@ -146,4 +154,20 @@ func TestReplay_SkipsCommitsPickedEarlier(t *testing.T) {
 	assert.Contains(t, titles, "second (picked earlier)")
 	assert.Equal(t, 1, strings.Count(e.run("log", "--format=%s"), "second"), "not duplicated")
 	e.assertInSync()
+}
+
+func TestPullCommit_DiscardedStopCanBePickedAgain(t *testing.T) {
+	e := newSyncEnv(t, map[string]string{"f.txt": "x\n"})
+	e.gl.editAs("Bob Jones", "clash", map[string]string{"f.txt": "remote\n"})
+	e.write("f.txt", "local\n")
+	e.commit("local")
+
+	res := e.pick(PullCommitInput{Commits: []string{e.gl.head().id}})
+	require.NotNil(t, res.StoppedAt)
+
+	// The user gives up on it.
+	e.run("checkout", "--", ".")
+	res = e.pick(PullCommitInput{Commits: []string{e.gl.head().id}, Strategy: StrategyRemote})
+	require.Len(t, res.Picked, 1)
+	assert.Equal(t, "remote\n", e.read("f.txt"))
 }
