@@ -391,7 +391,7 @@ func taskInput(repoPath *string, value *string) *huh.Input {
 	return huh.NewInput().
 		Key("task").
 		Title("Task").
-		Description("Appended to local commit titles: \"fix: <title> TASK-1\"").
+		Description("Appended to local commit titles: \"fix: <title> TASK-1\" (spaces allowed)").
 		PlaceholderFunc(func() string {
 			if f := getRememberedFormat(*repoPath); f.Task != "" {
 				return f.Task + " (remembered)"

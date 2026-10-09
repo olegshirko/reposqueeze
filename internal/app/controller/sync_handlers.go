@@ -143,7 +143,7 @@ func printMirrorLog(m entity.Mirror) {
 // formatFlags registers --type and --task.
 func formatFlags(fs *flag.FlagSet) (*string, *string) {
 	return fs.String("type", "", "Commit type for local commits: fix, feat, test, ... (remembered per mirror)"),
-		fs.String("task", "", "Task reference appended to local commit titles, e.g. TASK-123 (remembered per mirror)")
+		fs.String("task", "", "Task appended to local commit titles, e.g. TASK-123 or \"TASK 123 login\" (quote it when it has spaces; remembered per mirror)")
 }
 
 func (c *CLIController) handlePullCommit(args []string) error {

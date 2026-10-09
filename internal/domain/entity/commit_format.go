@@ -10,7 +10,7 @@ import (
 // e.g. "fix: handle empty input TASK-123".
 type CommitFormat struct {
 	Type string `json:"type,omitempty"` // fix, feat, test, ...
-	Task string `json:"task,omitempty"` // task reference appended to the title
+	Task string `json:"task,omitempty"` // task reference appended to the title; may contain spaces
 }
 
 var (
@@ -29,8 +29,8 @@ func (f CommitFormat) Validate() error {
 	if f.Type != "" && !commitTypeRe.MatchString(f.Type) {
 		return fmt.Errorf("invalid commit type %q: use a lowercase word such as fix, feat, test", f.Type)
 	}
-	if strings.ContainsAny(f.Task, " \t\r\n") {
-		return fmt.Errorf("invalid task %q: must not contain spaces", f.Task)
+	if strings.ContainsAny(f.Task, "\r\n") {
+		return fmt.Errorf("invalid task %q: must be a single line", f.Task)
 	}
 	return nil
 }
@@ -39,6 +39,7 @@ func (f CommitFormat) Validate() error {
 // An existing conventional prefix is replaced by Type, and Task is appended
 // unless the title already mentions it.
 func (f CommitFormat) Apply(msg string) string {
+	f.Task = strings.TrimSpace(f.Task)
 	if f.IsZero() {
 		return msg
 	}
@@ -58,6 +59,7 @@ func (f CommitFormat) Apply(msg string) string {
 
 // Merge returns f with empty fields taken from fallback.
 func (f CommitFormat) Merge(fallback CommitFormat) CommitFormat {
+	f.Task = strings.TrimSpace(f.Task)
 	if f.Type == "" {
 		f.Type = fallback.Type
 	}
