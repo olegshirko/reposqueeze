@@ -34,6 +34,10 @@ type PullCommitInput struct {
 	Commits  []string // GitLab SHAs (full or abbreviated); applied oldest first
 	Strategy string   // merge (default), local, remote, abort
 	Format   entity.CommitFormat
+	// Spread, when set, replaces the GitLab dates with dates spread evenly
+	// over a period.
+	Spread *DateSpread
+	DryRun bool // only report what would be picked and when
 }
 
 // PullCommitResult reports what was brought in.
@@ -45,6 +49,8 @@ type PullCommitResult struct {
 	Remaining []string            // selected commits not applied because of the stop
 	// CommitCommand completes StoppedAt after the conflicts are resolved.
 	CommitCommand string
+	// Plan lists, for a dry run, the local commits that would be created.
+	Plan []string
 }
 
 // Summary is a one-line result description.
@@ -160,6 +166,20 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 	for i, c := range todo {
 		messages[i] = in.Format.Apply(replayMessage(c.CommitInfo))
 	}
+	dates, err := spreadDates(in.Spread, len(todo))
+	if err != nil {
+		return nil, err
+	}
+	if in.DryRun {
+		for i, c := range todo {
+			at := dates[i]
+			if at.IsZero() {
+				at, _ = time.Parse(time.RFC3339, c.AuthoredDate)
+			}
+			res.Plan = append(res.Plan, fmt.Sprintf("%s  %s  <- %s", at.Local().Format("Mon 2006-01-02 15:04"), firstLine(messages[i]), short(c.ID)))
+		}
+		return res, nil
+	}
 	if err := checkMessages(uc.git, in.RepoPath, messages); err != nil {
 		return nil, err
 	}
@@ -207,10 +227,10 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 			if err := uc.store.Save(in.RepoPath, set); err != nil {
 				return res, err
 			}
-			return uc.stop(in.RepoPath, res, c, conflicts, messages[i], todo[i+1:])
+			return uc.stop(in.RepoPath, res, c, conflicts, messages[i], dates[i], todo[i+1:])
 		}
 
-		sha, err := uc.git.CommitPaths(in.RepoPath, messages[i], step.paths, authorOptions(c.CommitInfo))
+		sha, err := uc.git.CommitPaths(in.RepoPath, messages[i], step.paths, authorOptions(c.CommitInfo, dates[i]))
 		if err != nil {
 			return res, err
 		}
@@ -278,7 +298,7 @@ func sortOldestFirst(c []RemoteCommit) {
 
 // stop leaves a conflicting commit in the working tree, like `git cherry-pick`.
 func (uc *PullCommitUseCase) stop(repoPath string, res *PullCommitResult, c RemoteCommit, conflicts []pickConflict,
-	msg string, rest []RemoteCommit) (*PullCommitResult, error) {
+	msg string, at time.Time, rest []RemoteCommit) (*PullCommitResult, error) {
 
 	for _, cf := range conflicts {
 		if cf.content == nil {
@@ -299,8 +319,13 @@ func (uc *PullCommitUseCase) stop(repoPath string, res *PullCommitResult, c Remo
 	for _, r := range rest {
 		res.Remaining = append(res.Remaining, r.ID)
 	}
+	opts := authorOptions(info, at)
 	res.CommitCommand = fmt.Sprintf("git add -A && git commit -F %s --author %q --date %q",
-		shellQuote(msgFile), fmt.Sprintf("%s <%s>", info.AuthorName, info.AuthorEmail), info.AuthoredDate)
+		shellQuote(msgFile), fmt.Sprintf("%s <%s>", info.AuthorName, info.AuthorEmail), opts.AuthorDate)
+	if opts.CommitterDate != "" {
+		res.CommitCommand = fmt.Sprintf("git add -A && GIT_COMMITTER_DATE=%q git commit -F %s --author %q --date %q",
+			opts.CommitterDate, shellQuote(msgFile), fmt.Sprintf("%s <%s>", info.AuthorName, info.AuthorEmail), opts.AuthorDate)
+	}
 	uc.logger.Warnf("Conflicts in %s while picking %s %s", conflictPaths(conflicts), short(info.ID), commitTitle(info))
 	return res, nil
 }

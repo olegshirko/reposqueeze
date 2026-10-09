@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,4 +172,61 @@ func TestPullCommit_DiscardedStopCanBePickedAgain(t *testing.T) {
 	res = e.pick(PullCommitInput{Commits: []string{e.gl.head().id}, Strategy: StrategyRemote})
 	require.Len(t, res.Picked, 1)
 	assert.Equal(t, "remote\n", e.read("f.txt"))
+}
+
+func TestPullCommit_SpreadDates(t *testing.T) {
+	e := newSyncEnv(t, map[string]string{"a.txt": "a"})
+	var ids []string
+	for i := 1; i <= 6; i++ {
+		e.gl.editAs("Alice Smith", "change "+strconv.Itoa(i), map[string]string{"f" + strconv.Itoa(i) + ".txt": "x"})
+		ids = append(ids, e.gl.head().id)
+	}
+	// Mon 2026-09-07 .. Wed 2026-09-09: 3 working days, 2 commits each.
+	spread, err := ParseDateSpread("2026-09-07", "2026-09-09", "10-19", false, 15*time.Minute)
+	require.NoError(t, err)
+	head := e.run("rev-parse", "HEAD")
+
+	// Dry run shows the plan and changes nothing.
+	res := e.pick(PullCommitInput{Commits: ids, Spread: spread, DryRun: true, Format: entity.CommitFormat{Type: "feat", Task: "TASK-5"}})
+	require.Len(t, res.Plan, 6)
+	assert.Contains(t, res.Plan[0], "2026-09-07")
+	assert.Contains(t, res.Plan[0], "feat: change 1 TASK-5")
+	assert.Equal(t, head, e.run("rev-parse", "HEAD"))
+
+	res = e.pick(PullCommitInput{Commits: ids, Spread: spread})
+	require.Len(t, res.Picked, 6)
+
+	lines := strings.Split(e.run("log", "-n", "6", "--reverse", "--format=%aI|%cI|%s"), "\n")
+	perDay := map[string]int{}
+	var prev time.Time
+	for _, l := range lines {
+		parts := strings.Split(l, "|")
+		authored, err := time.Parse(time.RFC3339, parts[0])
+		require.NoError(t, err)
+		assert.Equal(t, parts[0], parts[1], "committer date equals author date")
+		assert.True(t, authored.After(prev), "dates increase")
+		h := authored.In(time.Local).Hour()
+		assert.True(t, h >= 10 && h < 19, "within working hours: %s", authored)
+		perDay[authored.In(time.Local).Format(dayLayout)]++
+		prev = authored
+	}
+	assert.Equal(t, map[string]int{"2026-09-07": 2, "2026-09-08": 2, "2026-09-09": 2}, perDay)
+}
+
+func TestReplay_SpreadDates(t *testing.T) {
+	e := newSyncEnv(t, map[string]string{"a.txt": "a"})
+	e.init()
+	e.gl.editAs("Alice Smith", "one", map[string]string{"one.txt": "1"})
+	e.gl.editAs("Alice Smith", "two", map[string]string{"two.txt": "2"})
+	spread, err := ParseDateSpread("2026-09-07", "2026-09-08", "", false, 0)
+	require.NoError(t, err)
+
+	_, err = e.uc.Sync(context.Background(), SyncInput{RepoPath: e.repo, Spread: spread})
+	require.Error(t, err, "spreading needs --replay")
+
+	res := e.sync(SyncInput{Replay: true, Spread: spread})
+	require.Len(t, res.Replayed, 2)
+	assert.Equal(t, "2026-09-07 14:30|2026-09-08 14:30",
+		strings.ReplaceAll(e.run("log", "-n", "2", "--reverse", "--date=format-local:%Y-%m-%d %H:%M", "--format=%ad"), "\n", "|"))
+	e.assertInSync()
 }

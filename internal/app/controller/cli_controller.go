@@ -445,6 +445,8 @@ func (c *CLIController) printUsage() {
 	fmt.Println("                        Brings the chosen commits into the current branch, one local commit each (oldest first).")
 	fmt.Println("")
 	fmt.Println("  --type/--task make local commit messages look like \"fix: <title> TASK-1\"; sync remembers them per mirror.")
+	fmt.Println("  --from/--to YYYY-MM-DD spread the dates of brought-in commits evenly over working days")
+	fmt.Println("    (pull-commit, sync --replay); tune with --hours 10-19, --weekends, --jitter 20m; preview with --dry-run.")
 	fmt.Println("")
 	fmt.Println("  tui                 Interactive mode")
 }

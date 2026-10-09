@@ -21,8 +21,9 @@ const (
 	cmdSyncLog          = "sync-log"
 	cmdPullCommit       = "pull-commit"
 
-	// cmdSyncConfirm is the second step of the sync wizard (not in the menu).
+	// Confirmation steps of the sync and pull-commit wizards (not in the menu).
 	cmdSyncConfirm = "sync-confirm"
+	cmdPickConfirm = "pick-confirm"
 )
 
 type menuItem struct {

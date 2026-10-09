@@ -45,6 +45,9 @@ type CommitOptions struct {
 	AuthorName  string // empty: use git config
 	AuthorEmail string
 	AuthorDate  string // any format git accepts, e.g. RFC 3339
+	// CommitterDate, when set, is used as the committer date too
+	// (otherwise git uses the current time).
+	CommitterDate string
 }
 
 // SyncGit is the set of local Git operations needed by two-way sync.

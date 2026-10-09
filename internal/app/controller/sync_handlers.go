@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 	"github.com/olegshirko/reposqueeze/internal/domain/entity"
@@ -72,6 +73,7 @@ func (c *CLIController) handleSync(args []string) error {
 	message := fs.String("message", "", "Commit message for the GitLab commit")
 	replay := fs.Bool("replay", false, "Pull GitLab commits one by one as separate local commits (original message, author, date)")
 	commitType, task := formatFlags(fs)
+	spread := spreadFlags(fs)
 
 	fs.Parse(reorderFlagsFirst(fs, args))
 	if len(fs.Args()) == 0 {
@@ -79,6 +81,10 @@ func (c *CLIController) handleSync(args []string) error {
 		return errUsage
 	}
 
+	dates, err := spread()
+	if err != nil {
+		return err
+	}
 	res, err := c.syncUseCase.Sync(context.Background(), usecase.SyncInput{
 		RepoPath:  fs.Args()[0],
 		Mirror:    *mirror,
@@ -88,6 +94,7 @@ func (c *CLIController) handleSync(args []string) error {
 		Message:   *message,
 		Replay:    *replay,
 		Format:    entity.CommitFormat{Type: *commitType, Task: *task},
+		Spread:    dates,
 	})
 	if err != nil {
 		return err
@@ -138,6 +145,25 @@ func printMirrorLog(m entity.Mirror) {
 	fmt.Println()
 }
 
+// spreadFlags registers the date-spreading flags and returns a parser that
+// yields nil when no period is given.
+func spreadFlags(fs *flag.FlagSet) func() (*usecase.DateSpread, error) {
+	from := fs.String("from", "", "Spread commit dates evenly starting from this day (YYYY-MM-DD); needs --to")
+	to := fs.String("to", "", "Last day of the period for spread commit dates (YYYY-MM-DD)")
+	hours := fs.String("hours", "10-19", "Working hours for spread commit dates")
+	weekends := fs.Bool("weekends", false, "Also put spread commits on Saturdays and Sundays")
+	jitter := fs.Duration("jitter", 20*time.Minute, "Max random shift of each spread commit time")
+	return func() (*usecase.DateSpread, error) {
+		if *from == "" && *to == "" {
+			return nil, nil
+		}
+		if *from == "" || *to == "" {
+			return nil, fmt.Errorf("give both --from and --to to spread commit dates")
+		}
+		return usecase.ParseDateSpread(*from, *to, *hours, *weekends, *jitter)
+	}
+}
+
 // formatFlags registers --type and --task.
 func formatFlags(fs *flag.FlagSet) (*string, *string) {
 	return fs.String("type", "", "Commit type for local commits: fix, feat, test, ... (remembered per mirror)"),
@@ -152,7 +178,9 @@ func (c *CLIController) handlePullCommit(args []string) error {
 	branch := fs.String("branch-name", "master", "GitLab branch for --list")
 	limit := fs.Int("limit", 30, "How many commits --list shows")
 	strategy := fs.String("strategy", usecase.StrategyMerge, "Local changes in the same files: merge (stop on conflict like cherry-pick), local, remote or abort")
+	dryRun := fs.Bool("dry-run", false, "Only show which local commits would be created and with which dates")
 	commitType, task := formatFlags(fs)
+	spread := spreadFlags(fs)
 
 	fs.Parse(reorderFlagsFirst(fs, args))
 	if len(fs.Args()) == 0 || (!*list && *commits == "") {
@@ -187,14 +215,26 @@ func (c *CLIController) handlePullCommit(args []string) error {
 		return nil
 	}
 
+	dates, err := spread()
+	if err != nil {
+		return err
+	}
 	res, err := c.pullCommitUseCase.Execute(context.Background(), usecase.PullCommitInput{
 		RepoPath: repoPath,
 		Commits:  strings.Split(*commits, ","),
 		Strategy: *strategy,
 		Format:   entity.CommitFormat{Type: *commitType, Task: *task},
+		Spread:   dates,
+		DryRun:   *dryRun,
 	})
 	if err != nil {
 		return err
+	}
+	if *dryRun {
+		for _, line := range res.Plan {
+			fmt.Println(line)
+		}
+		return nil
 	}
 	c.logger.Infof("pull-commit: %s", res.Summary())
 	if res.StoppedAt != nil {

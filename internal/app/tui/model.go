@@ -51,8 +51,9 @@ type appModel struct {
 	// pull-files wizard state
 	pendingPullFiles *usecase.PullFilesInput
 
-	// sync wizard state
+	// sync and pull-commit wizard state
 	pendingSync *usecase.SyncInput
+	pendingPick *usecase.PullCommitInput
 
 	// runSeq numbers runs so events from abandoned runs are ignored.
 	runSeq int
@@ -134,6 +135,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case syncPlanMsg:
 		return m.handleSyncPlan(msg)
 
+	case pickPlanMsg:
+		return m.handlePickPlan(msg)
+
 	case backMsg:
 		switch m.state {
 		case stateForm, stateFileSelect, statePlanning:
@@ -141,6 +145,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.form = nil
 			m.pendingPullFiles = nil
 			m.pendingSync = nil
+			m.pendingPick = nil
 			return m, nil
 		case stateRunning, stateResult:
 			if m.runner != nil {
@@ -220,14 +225,14 @@ func (m *appModel) View() string {
 			return m.runner.View()
 		}
 	case statePlanning:
-		return lipgloss.NewStyle().Margin(1, 2).Render("Comparing local branch with GitLab...\n\n" + helpStyle.Render("esc: cancel"))
+		return lipgloss.NewStyle().Margin(1, 2).Render("Preparing the plan...\n\n" + helpStyle.Render("esc: cancel"))
 	}
 	return lipgloss.NewStyle().Margin(1, 2).Render("Loading...")
 }
 
 func (m *appModel) handleFormSubmit(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 	switch msg.cmd {
-	case cmdSync, cmdSyncStatus, cmdSyncInit, cmdSyncLog, cmdSyncConfirm, cmdPullCommit:
+	case cmdSync, cmdSyncStatus, cmdSyncInit, cmdSyncLog, cmdSyncConfirm, cmdPullCommit, cmdPickConfirm:
 		return m.handleSyncForm(msg)
 	}
 

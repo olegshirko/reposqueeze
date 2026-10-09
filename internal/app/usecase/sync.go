@@ -156,6 +156,9 @@ type SyncInput struct {
 	// Format shapes local commit messages ("fix: title TASK-1"). Empty fields
 	// fall back to the values remembered in the mirror.
 	Format entity.CommitFormat
+	// Spread spreads the dates of replayed commits evenly over a period
+	// (only with Replay).
+	Spread *DateSpread
 }
 
 func (uc *SyncUseCase) loadMirror(in SyncInput) (*entity.MirrorSet, *entity.Mirror, error) {
@@ -325,6 +328,9 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 	if err := in.Format.Validate(); err != nil {
 		return nil, err
 	}
+	if in.Spread != nil && !in.Replay {
+		return nil, fmt.Errorf("spreading dates needs --replay: without it GitLab changes arrive as one commit")
+	}
 	in.Format = in.Format.Merge(m.CommitFormat)
 	m.CommitFormat = in.Format // remembered when the sync is saved
 
@@ -370,6 +376,16 @@ func (uc *SyncUseCase) Sync(ctx context.Context, in SyncInput) (res *SyncResult,
 		uc.logger.Info(line)
 	}
 
+	if in.DryRun && in.Spread != nil && len(plan.RemoteCommits) > 0 {
+		dates, err := in.Spread.Schedule(len(plan.RemoteCommits), uc.now())
+		if err != nil {
+			return res, err
+		}
+		uc.logger.Info("Planned dates of replayed commits:")
+		for i, c := range plan.RemoteCommits {
+			uc.logger.Infof("  %s  %s", dates[i].Format("Mon 2006-01-02 15:04"), firstLine(in.Format.Apply(replayMessage(c.CommitInfo))))
+		}
+	}
 	if in.DryRun || plan.Empty() {
 		return res, nil
 	}

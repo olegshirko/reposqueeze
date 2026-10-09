@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/olegshirko/reposqueeze/internal/app/usecase"
 	"github.com/olegshirko/reposqueeze/internal/domain/entity"
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
@@ -404,9 +406,74 @@ func taskInput(repoPath *string, value *string) *huh.Input {
 		Value(value)
 }
 
+// spreadFields hold the date-spreading answers of a form.
+type spreadFields struct {
+	enabled         bool
+	from, to, hours string
+	weekends        bool
+}
+
+// spreadToggle asks whether to spread commit dates.
+func spreadToggle(sf *spreadFields) *huh.Confirm {
+	return huh.NewConfirm().
+		Key("spread").
+		Title("Spread commit dates evenly over a period?").
+		Description("No: keep the GitLab dates. Yes: working days of a period you choose, evenly, with a small random shift.").
+		Value(&sf.enabled)
+}
+
+// spreadGroup asks for the period; hidden unless spreading is on.
+func spreadGroup(sf *spreadFields, hide func() bool) *huh.Group {
+	sf.hours = "10-19"
+	return huh.NewGroup(
+		huh.NewInput().
+			Key("spreadFrom").
+			Title("Start date").
+			Description("First day of the period, YYYY-MM-DD").
+			Placeholder(time.Now().AddDate(0, 0, -14).Format("2006-01-02")).
+			Validate(func(v string) error {
+				_, err := time.Parse("2006-01-02", strings.TrimSpace(v))
+				if err != nil {
+					return fmt.Errorf("use YYYY-MM-DD")
+				}
+				return nil
+			}).
+			Value(&sf.from),
+		huh.NewInput().
+			Key("spreadTo").
+			Title("End date").
+			Description("Last day of the period, YYYY-MM-DD (not in the future)").
+			Placeholder(time.Now().Format("2006-01-02")).
+			Validate(func(v string) error {
+				s, err := usecase.ParseDateSpread(sf.from, v, sf.hours, sf.weekends, 0)
+				if err != nil {
+					return err
+				}
+				if s.To.After(time.Now()) {
+					return fmt.Errorf("the end date is in the future")
+				}
+				return nil
+			}).
+			Value(&sf.to),
+		huh.NewInput().
+			Key("spreadHours").
+			Title("Working hours").
+			Validate(func(v string) error {
+				_, err := usecase.ParseDateSpread("2000-01-03", "2000-01-03", v, false, 0)
+				return err
+			}).
+			Value(&sf.hours),
+		huh.NewConfirm().
+			Key("spreadWeekends").
+			Title("Use weekends too?").
+			Value(&sf.weekends),
+	).WithHideFunc(hide)
+}
+
 func newSyncForm() *huh.Form {
 	var repoPath, mirror, strategy, commitType, task string
 	var autostash, replay bool
+	var sf spreadFields
 	strategy = "merge"
 
 	return huh.NewForm(
@@ -437,6 +504,9 @@ func newSyncForm() *huh.Form {
 			commitTypeSelect(&repoPath, &commitType),
 			taskInput(&repoPath, &task),
 		),
+		// Dates can only be spread when commits are replayed one by one.
+		huh.NewGroup(spreadToggle(&sf)).WithHideFunc(func() bool { return !replay }),
+		spreadGroup(&sf, func() bool { return !replay || !sf.enabled }),
 	)
 }
 
@@ -452,6 +522,7 @@ func listRows(termHeight, reserved int) int {
 func newPullCommitForm(gitlabGW gateway.GitLabGateway, termHeight int) *huh.Form {
 	var repoPath, branch, strategy, commitType, task string
 	var commits []string
+	var sf spreadFields
 	strategy = "merge"
 
 	return huh.NewForm(
@@ -496,6 +567,22 @@ func newPullCommitForm(gitlabGW gateway.GitLabGateway, termHeight int) *huh.Form
 					huh.NewOption("abort: stop without changing anything", "abort"),
 				).
 				Value(&strategy),
+			spreadToggle(&sf),
+		),
+		spreadGroup(&sf, func() bool { return !sf.enabled }),
+	)
+}
+
+func newPickConfirmForm() *huh.Form {
+	run := true
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Key("confirm").
+				Title("Create these local commits?").
+				Affirmative("Pick").
+				Negative("Cancel").
+				Value(&run),
 		),
 	)
 }
@@ -619,6 +706,8 @@ func buildForm(cmd string, gitlabGW gateway.GitLabGateway, termHeight int) *huh.
 		form = newSyncConfirmForm()
 	case cmdPullCommit:
 		form = newPullCommitForm(gitlabGW, termHeight)
+	case cmdPickConfirm:
+		form = newPickConfirmForm()
 	}
 	if form != nil {
 		form.WithKeyMap(formKeyMap())

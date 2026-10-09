@@ -3,6 +3,7 @@ package usecase
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/olegshirko/reposqueeze/internal/domain/gateway"
 )
@@ -228,12 +229,26 @@ func trimMessage(s string) string {
 	return string(bytes.TrimRight([]byte(s), "\n"))
 }
 
-// authorOptions keeps the GitLab commit's author and date.
-func authorOptions(c gateway.CommitInfo) gateway.CommitOptions {
-	return gateway.CommitOptions{
+// authorOptions keeps the GitLab commit's author and date; a non-zero `at`
+// replaces the date (author and committer) for spread-out history.
+func authorOptions(c gateway.CommitInfo, at time.Time) gateway.CommitOptions {
+	opts := gateway.CommitOptions{
 		AllowEmpty:  true,
 		AuthorName:  c.AuthorName,
 		AuthorEmail: c.AuthorEmail,
 		AuthorDate:  c.AuthoredDate,
 	}
+	if !at.IsZero() {
+		opts.AuthorDate = at.Format(time.RFC3339)
+		opts.CommitterDate = opts.AuthorDate
+	}
+	return opts
+}
+
+// spreadDates returns n dates from spread, or n zero times without one.
+func spreadDates(spread *DateSpread, n int) ([]time.Time, error) {
+	if spread == nil {
+		return make([]time.Time, n), nil
+	}
+	return spread.Schedule(n, time.Now())
 }

@@ -155,8 +155,12 @@ func (g *OSExecGitGateway) CommitPaths(repoPath, message string, paths []string,
 	if opts.AuthorDate != "" {
 		args = append(args, "--date", opts.AuthorDate)
 	}
-	if _, err := g.git(repoPath, args...); err != nil {
-		return "", err
+	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
+	if opts.CommitterDate != "" {
+		cmd.Env = append(os.Environ(), "GIT_COMMITTER_DATE="+opts.CommitterDate)
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("git commit: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return g.RevParse(repoPath, "HEAD")
 }
