@@ -27,7 +27,7 @@ func (m *appModel) runClip(cmd string) (tea.Model, tea.Cmd) {
 		if err != nil {
 			return runResultMsg{err: err}
 		}
-		uc := usecase.NewClipUseCase(store, clipboard.NewClipsync(clipboard.DefaultBin()), d.log)
+		uc := usecase.NewClipUseCase(store, clipboard.Default(), d.log)
 		var res *usecase.ClipResult
 		if cmd == cmdClipPush {
 			res, err = uc.Push(ctx, cfg)

@@ -79,7 +79,7 @@ func run(args []string) int {
 		if err != nil {
 			return nil, "", err
 		}
-		return usecase.NewClipUseCase(store, clipboard.NewClipsync(clipboard.DefaultBin()), log), where, nil
+		return usecase.NewClipUseCase(store, clipboard.Default(), log), where, nil
 	})
 
 	// 5. Run the controller with command-line arguments

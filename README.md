@@ -160,7 +160,7 @@ reposqueeze sync . --replay --from 2026-09-14 --to 2026-09-25
 
 Буфер переносится целиком (текст, картинки, RTF, файлы и папки) хелпером `clipsync` и шифруется общим ключом. В GitLab попадает только шифротекст и хранится одна последняя копия.
 
-По умолчанию буфер ходит **через git по вашему SSH-ключу — токен не нужен**: приватный проект `git@gitlab.com:<вы>/clipboard.git`, ветка `clip`, в которой всегда ровно один коммит (каждая отправка делает `push --force`, история не копится). Пользователь определяется через `ssh -T` и запоминается в `~/.clipsync/remote`; проект создаётся сам при первой отправке. Если SSH недоступен — `--transport api`: Generic Package Registry проекта по `GITLAB_TOKEN`.
+С `GITLAB_TOKEN` буфер ходит через git по **HTTPS** с этим токеном (для сетей, где открыт только HTTPS); без токена — **через git по вашему SSH-ключу**: приватный проект `git@gitlab.com:<вы>/clipboard.git`, ветка `clip`, в которой всегда ровно один коммит (каждая отправка делает `push --force`, история не копится). Пользователь определяется через `ssh -T` и запоминается в `~/.clipsync/remote`; проект создаётся сам при первой отправке. Если SSH недоступен — `--transport api`: Generic Package Registry проекта по `GITLAB_TOKEN`.
 
 ```bash
 reposqueeze clip push            # отправить буфер этого мака
@@ -174,7 +174,7 @@ reposqueeze clip watch --pull    # ...и самому принимать коп�
 ### Установка (на каждом маке)
 
 1. Собрать reposqueeze и положить в `~/bin`: `make build && cp bin/reposqueeze ~/bin/`.
-2. Собрать хелпер: `make clipsync` (нужны Xcode Command Line Tools). Он ставится в `~/.clipsync/bin/clipsync`; прежние команды `export`/`import` не изменились, добавился режим `watch`.
+2. Хелпер — по желанию: `make clipsync` (нужны Xcode Command Line Tools) ставит его в `~/.clipsync/bin/clipsync`, или укажите путь к готовой копии в `REPOSQUEEZE_CLIPSYNC`. Без хелпера `clip push`/`clip pull` работают в текстовом режиме через `pbcopy`/`pbpaste`/`plutil`: передаётся текст, присланная картинка сохраняется в `~/Downloads`, а путь к ней кладётся в буфер. Хелпер нужен для файлов, всех форматов буфера и для `clip watch` (⌘C ⌘C).
 3. Скопировать **один и тот же** ключ `~/.clipsync/key` на оба мака — не через GitLab.
 4. Проверить SSH: `ssh -T git@gitlab.com` должен ответить «Welcome to GitLab». Если на работе закрыт порт 22, в `~/.ssh/config` для `gitlab.com` укажите `Hostname altssh.gitlab.com` и `Port 443`.
 5. Фоновое наблюдение при входе в систему — LaunchAgent из `tools/launchd/` (инструкция в файле). Для автоприёма допишите в нём флаг `--pull`.

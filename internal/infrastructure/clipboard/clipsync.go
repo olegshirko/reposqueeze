@@ -43,7 +43,7 @@ func NewClipsync(bin string) *Clipsync {
 func (c *Clipsync) check() error {
 	if _, err := os.Stat(c.Bin); err != nil {
 		return fmt.Errorf("clipsync helper not found at %s; build it with `make clipsync` in the reposqueeze repo "+
-			"(needs Xcode command line tools) or set REPOSQUEEZE_CLIPSYNC", c.Bin)
+			"(needs Xcode command line tools) or point REPOSQUEEZE_CLIPSYNC at a copy", c.Bin)
 	}
 	return nil
 }
