@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -417,13 +418,17 @@ func (m *appModel) startOperation(msg formSubmittedMsg) (tea.Model, tea.Cmd) {
 				CommitMessage: f.GetString("commitMessage"),
 			})
 		case cmdPushBranch:
-			uc := usecase.NewPushBranchUseCase(gitGW, gitlabGW, tuiLog)
-			return uc.Execute(ctx, usecase.PushBranchInput{
+			in := usecase.PushBranchInput{
 				RepoPath:      f.GetString("repoPath"),
 				SourceBranch:  f.GetString("sourceBranch"),
 				BranchName:    f.GetString("branchName"),
 				CommitMessage: f.GetString("commitMessage"),
-			})
+			}
+			if in.BranchName == newBranchOption {
+				in.BranchName = strings.TrimSpace(f.GetString("newBranch"))
+				in.CreateFrom = f.GetString("createFrom")
+			}
+			return usecase.NewPushBranchUseCase(gitGW, gitlabGW, tuiLog).Execute(ctx, in)
 		}
 		return 0, 0, fmt.Errorf("unknown command %q", msg.cmd)
 	})

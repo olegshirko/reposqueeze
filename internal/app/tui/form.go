@@ -293,19 +293,15 @@ func newCherryPickCommitForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 	)
 }
 
+// newBranchOption is the "create a new GitLab branch" choice of a branch list.
+const newBranchOption = "\x00new"
+
 func newPushBranchForm(gitlabGW gateway.GitLabGateway) *huh.Form {
-	var repoPath, sourceBranch, branchName, commitMessage string
+	var repoPath, sourceBranch, branchName, newBranch, createFrom, commitMessage string
 
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewFilePicker().
-				Key("repoPath").
-				Title("Repository path").
-				Description("Choose a local Git repository (h/←/backspace: up, enter: select)").
-				CurrentDirectory(homeDir()).
-				DirAllowed(true).
-				FileAllowed(false).
-				Value(&repoPath),
+			repoPicker("repoPath").Value(&repoPath),
 
 			huh.NewSelect[string]().
 				Key("sourceBranch").
@@ -323,7 +319,39 @@ func newPushBranchForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 			huh.NewSelect[string]().
 				Key("branchName").
 				Title("Target branch").
-				Description("Target branch on GitLab").
+				Description("Branch on GitLab to push into, or create a new one").
+				OptionsFunc(func() []huh.Option[string] {
+					opts := []huh.Option[string]{huh.NewOption("+ new branch…", newBranchOption)}
+					branches := getGitLabBranches(gitlabGW, repoPath)
+					if len(branches) == 0 {
+						branches = []string{"master"}
+					}
+					return append(opts, huh.NewOptions(branches...)...)
+				}, &repoPath).
+				Value(&branchName),
+		),
+		huh.NewGroup(
+			huh.NewInput().
+				Key("newBranch").
+				Title("New branch name").
+				Description("Created on GitLab, then your changes are pushed into it").
+				Validate(func(v string) error {
+					v = strings.TrimSpace(v)
+					if v == "" || strings.ContainsAny(v, " \t") {
+						return fmt.Errorf("enter a branch name without spaces")
+					}
+					for _, b := range getGitLabBranches(gitlabGW, repoPath) {
+						if b == v {
+							return fmt.Errorf("branch %q already exists on GitLab", v)
+						}
+					}
+					return nil
+				}).
+				Value(&newBranch),
+			huh.NewSelect[string]().
+				Key("createFrom").
+				Title("Create it from").
+				Description("Existing GitLab branch the new one starts from").
 				OptionsFunc(func() []huh.Option[string] {
 					branches := getGitLabBranches(gitlabGW, repoPath)
 					if len(branches) == 0 {
@@ -331,13 +359,13 @@ func newPushBranchForm(gitlabGW gateway.GitLabGateway) *huh.Form {
 					}
 					return huh.NewOptions(branches...)
 				}, &repoPath).
-				Value(&branchName),
-
+				Value(&createFrom),
+		).WithHideFunc(func() bool { return branchName != newBranchOption }),
+		huh.NewGroup(
 			huh.NewInput().
 				Key("commitMessage").
 				Title("Commit message (optional)").
 				Description("Custom commit message; leave empty for default").
-				Placeholder("").
 				Value(&commitMessage),
 		),
 	)

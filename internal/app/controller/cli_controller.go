@@ -328,6 +328,7 @@ func (c *CLIController) handlePushBranch(args []string) error {
 	sourceBranch := fs.String("source-branch", "", "Local source branch to push files from")
 	branchName := fs.String("branch-name", "master", "Target branch on GitLab")
 	commitMessage := fs.String("message", "", "Custom commit message (default: Push files from <source-branch>)")
+	createFrom := fs.String("create-from", "", "Create --branch-name on GitLab from this existing GitLab branch first")
 
 	fs.Parse(reorderFlagsFirst(fs, args))
 
@@ -341,6 +342,7 @@ func (c *CLIController) handlePushBranch(args []string) error {
 		SourceBranch:  *sourceBranch,
 		BranchName:    *branchName,
 		CommitMessage: *commitMessage,
+		CreateFrom:    *createFrom,
 	}
 
 	c.logger.Infof("Pushing all files from local branch %s to GitLab branch %s", input.SourceBranch, input.BranchName)
@@ -427,7 +429,7 @@ func (c *CLIController) printUsage() {
 	fmt.Println("  push-folder         <path> [--project-name <name>] [--branch-name <name>]")
 	fmt.Println("  cherry-pick-commit  <path> --commit <hash> [--branch-name <name>] [--message <msg>]")
 	fmt.Println("                        Pushes a single local commit's file changes to an existing GitLab project.")
-	fmt.Println("  push-branch         <path> --source-branch <name> [--branch-name <name>] [--message <msg>]")
+	fmt.Println("  push-branch         <path> --source-branch <name> [--branch-name <name>] [--create-from <gitlab branch>] [--message <msg>]")
 	fmt.Println("                        Pushes all tracked files from a local branch to GitLab as one commit.")
 	fmt.Println("")
 	fmt.Println("Two-way sync (a mirror = local branch <-> GitLab branch, with a journal of matching commits):")

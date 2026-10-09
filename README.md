@@ -203,6 +203,9 @@ reposqueeze cherry-pick-commit . --commit a1b2c3d --branch-name main [--message 
 # Отправить изменения ветки относительно master/main одним коммитом (vendor исключается)
 reposqueeze push-branch . --source-branch feature/x --branch-name main [--message "..."]
 
+# ...в новую ветку GitLab: сначала создать её от существующей (проект не трогается)
+reposqueeze push-branch . --source-branch feature/x --branch-name feature/x --create-from master
+
 # Скачать файлы с GitLab
 reposqueeze pull-files . --branch-name main --files README.md,go.mod   # конкретные файлы
 reposqueeze pull-files . --branch-name main --commits 3 --git-add      # изменения 3 последних коммитов
@@ -222,7 +225,7 @@ git merge from-gitlab --allow-unrelated-histories
 reposqueeze tui
 ```
 
-Меню со всеми командами. В Sync можно включить перенос по коммитам и задать тип/задачу; в Pull commits выбрать нужные коммиты из списка. Для sync сначала показывается план (что будет забрано, отправлено и слито), затем запрос подтверждения. В Sync init локальный коммит и соответствующий ему коммит GitLab выбираются из списков. `esc` отменяет текущую операцию и возвращает в меню.
+Меню со всеми командами. В Push branch в списке целевых веток есть «+ new branch…» — имя новой ветки и ветка GitLab, от которой её создать. В Sync можно включить перенос по коммитам и задать тип/задачу; в Pull commits выбрать нужные коммиты из списка. Для sync сначала показывается план (что будет забрано, отправлено и слито), затем запрос подтверждения. В Sync init локальный коммит и соответствующий ему коммит GitLab выбираются из списков. `esc` отменяет текущую операцию и возвращает в меню.
 
 ## Структура проекта
 
