@@ -41,10 +41,9 @@ type MergeResult struct {
 
 // CommitOptions tunes a commit created by CommitPaths.
 type CommitOptions struct {
-	AllowEmpty  bool
-	AuthorName  string // empty: use git config
-	AuthorEmail string
-	AuthorDate  string // any format git accepts, e.g. RFC 3339
+	AllowEmpty bool
+	// The author is always the one from the local git config.
+	AuthorDate string // any format git accepts, e.g. RFC 3339
 	// CommitterDate, when set, is used as the committer date too
 	// (otherwise git uses the current time).
 	CommitterDate string

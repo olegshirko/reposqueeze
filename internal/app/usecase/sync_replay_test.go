@@ -33,9 +33,9 @@ func TestReplay_PullsCommitsOneByOne(t *testing.T) {
 	e.assertInSync()
 
 	assert.Equal(t, []string{
-		"feat: change a|Alice Smith|2024-01-02T10:00:00Z",
-		"feat: add c|Bob Jones|2024-01-03T10:00:00Z",
-		"chore: drop b|Alice Smith|2024-01-04T10:00:00Z",
+		"feat: change a|T|2024-01-02T10:00:00Z",
+		"feat: add c|T|2024-01-03T10:00:00Z",
+		"chore: drop b|T|2024-01-04T10:00:00Z",
 	}, e.logLines(3))
 
 	// Messages are exactly the GitLab ones; the correspondence lives in the

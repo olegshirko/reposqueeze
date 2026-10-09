@@ -194,7 +194,7 @@ func (uc *SyncUseCase) replay(ctx context.Context, in SyncInput, set *entity.Mir
 		if err := writeStep(in.RepoPath, st); err != nil {
 			return res, uc.replayInterrupted(i, len(steps), newRemote, err)
 		}
-		sha, err := uc.git.CommitPaths(in.RepoPath, messages[i], st.paths, authorOptions(st.commit.CommitInfo, dates[i]))
+		sha, err := uc.git.CommitPaths(in.RepoPath, messages[i], st.paths, dateOptions(st.commit.CommitInfo, dates[i]))
 		if err != nil {
 			return res, uc.replayInterrupted(i, len(steps), newRemote, err)
 		}

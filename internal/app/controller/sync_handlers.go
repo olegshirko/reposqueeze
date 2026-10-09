@@ -71,7 +71,7 @@ func (c *CLIController) handleSync(args []string) error {
 	autostash := fs.Bool("autostash", false, "Stash uncommitted changes before syncing and re-apply them afterwards")
 	dryRun := fs.Bool("dry-run", false, "Only show what would be done")
 	message := fs.String("message", "", "Commit message for the GitLab commit")
-	replay := fs.Bool("replay", false, "Pull GitLab commits one by one as separate local commits (original message, author, date)")
+	replay := fs.Bool("replay", false, "Pull GitLab commits one by one as separate local commits (original message and date; author from local git config)")
 	commitType, task := formatFlags(fs)
 	spread := spreadFlags(fs)
 

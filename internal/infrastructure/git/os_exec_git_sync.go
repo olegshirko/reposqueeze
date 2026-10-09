@@ -149,9 +149,6 @@ func (g *OSExecGitGateway) CommitPaths(repoPath, message string, paths []string,
 	if opts.AllowEmpty {
 		args = append(args, "--allow-empty")
 	}
-	if opts.AuthorName != "" && opts.AuthorEmail != "" {
-		args = append(args, "--author", fmt.Sprintf("%s <%s>", opts.AuthorName, opts.AuthorEmail))
-	}
 	if opts.AuthorDate != "" {
 		args = append(args, "--date", opts.AuthorDate)
 	}

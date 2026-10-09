@@ -142,6 +142,6 @@ func TestReplay_OverHTTPGateway(t *testing.T) {
 	res, err := e.uc.Sync(context.Background(), SyncInput{RepoPath: e.repo, Replay: true})
 	require.NoError(t, err)
 	require.Len(t, res.Replayed, 2)
-	require.Equal(t, "Bob Jones", e.run("log", "-1", "--format=%an", res.Replayed[1].LocalSHA))
+	require.Equal(t, "T", e.run("log", "-1", "--format=%an", res.Replayed[1].LocalSHA), "author from local git config")
 	e.assertInSync()
 }

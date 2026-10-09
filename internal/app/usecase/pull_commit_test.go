@@ -39,8 +39,9 @@ func TestPullCommit_SelectedCommitsOnly(t *testing.T) {
 	res := e.pick(PullCommitInput{Commits: []string{three[:10], one}, Format: entity.CommitFormat{Type: "fix", Task: "TASK-NUMBER01"}})
 	require.Len(t, res.Picked, 2)
 
-	assert.Equal(t, []string{"fix: one TASK-NUMBER01|Alice Smith", "fix: three TASK-NUMBER01|Bob Jones"},
-		strings.Split(e.run("log", "-n", "2", "--reverse", "--format=%s|%an"), "\n"))
+	// The author is the local git config user, not the GitLab author.
+	assert.Equal(t, []string{"fix: one TASK-NUMBER01|T <t@example.com>", "fix: three TASK-NUMBER01|T <t@example.com>"},
+		strings.Split(e.run("log", "-n", "2", "--reverse", "--format=%s|%an <%ae>"), "\n"))
 	assert.Contains(t, e.run("log", "-1", "--format=%B"), "Why it matters.")
 	assert.Equal(t, "fix: three TASK-NUMBER01\n\nWhy it matters.", e.run("log", "-1", "--format=%B"), "nothing appended")
 	assert.Equal(t, "1", e.read("one.txt"))
@@ -93,7 +94,8 @@ func TestPullCommit_ConflictStopsLikeCherryPick(t *testing.T) {
 	msg, err := os.ReadFile(filepath.Join(gitDir, "reposqueeze", "PICK_MSG"))
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(string(msg), "feat: clash TASK-9"))
-	assert.Contains(t, res.CommitCommand, "--author \"Bob Jones <bob.jones@example.com>\"")
+	assert.NotContains(t, res.CommitCommand, "--author")
+	assert.Contains(t, res.CommitCommand, "--date")
 
 	// Resolving and committing with the suggested command keeps the provenance trailer.
 	e.write("f.txt", "resolved\n")

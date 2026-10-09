@@ -16,6 +16,7 @@ import (
 
 // PullCommitUseCase brings selected GitLab commits into the current local
 // branch, one local commit each, like `git cherry-pick` across the API.
+// The local git config user is the author; messages and dates are kept.
 type PullCommitUseCase struct {
 	git    gateway.SyncGit
 	gitlab gateway.GitLabGateway
@@ -230,7 +231,7 @@ func (uc *PullCommitUseCase) Execute(ctx context.Context, in PullCommitInput) (*
 			return uc.stop(in.RepoPath, res, c, conflicts, messages[i], dates[i], todo[i+1:])
 		}
 
-		sha, err := uc.git.CommitPaths(in.RepoPath, messages[i], step.paths, authorOptions(c.CommitInfo, dates[i]))
+		sha, err := uc.git.CommitPaths(in.RepoPath, messages[i], step.paths, dateOptions(c.CommitInfo, dates[i]))
 		if err != nil {
 			return res, err
 		}
@@ -319,12 +320,11 @@ func (uc *PullCommitUseCase) stop(repoPath string, res *PullCommitResult, c Remo
 	for _, r := range rest {
 		res.Remaining = append(res.Remaining, r.ID)
 	}
-	opts := authorOptions(info, at)
-	res.CommitCommand = fmt.Sprintf("git add -A && git commit -F %s --author %q --date %q",
-		shellQuote(msgFile), fmt.Sprintf("%s <%s>", info.AuthorName, info.AuthorEmail), opts.AuthorDate)
+	opts := dateOptions(info, at)
+	res.CommitCommand = fmt.Sprintf("git add -A && git commit -F %s --date %q", shellQuote(msgFile), opts.AuthorDate)
 	if opts.CommitterDate != "" {
-		res.CommitCommand = fmt.Sprintf("git add -A && GIT_COMMITTER_DATE=%q git commit -F %s --author %q --date %q",
-			opts.CommitterDate, shellQuote(msgFile), fmt.Sprintf("%s <%s>", info.AuthorName, info.AuthorEmail), opts.AuthorDate)
+		res.CommitCommand = fmt.Sprintf("git add -A && GIT_COMMITTER_DATE=%q git commit -F %s --date %q",
+			opts.CommitterDate, shellQuote(msgFile), opts.AuthorDate)
 	}
 	uc.logger.Warnf("Conflicts in %s while picking %s %s", conflictPaths(conflicts), short(info.ID), commitTitle(info))
 	return res, nil

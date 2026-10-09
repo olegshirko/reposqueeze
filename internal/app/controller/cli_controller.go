@@ -434,7 +434,7 @@ func (c *CLIController) printUsage() {
 	fmt.Println("                        Shows what sync would pull, push and merge.")
 	fmt.Println("  sync                <path> [--mirror <name>] [--strategy merge|local|remote|abort] [--autostash] [--dry-run] [--message <msg>] [--replay] [--type <fix|feat|...>] [--task <TASK-1>]")
 	fmt.Println("                        Pulls GitLab changes, pushes local commits, 3-way merges files changed on both sides.")
-	fmt.Println("                        --replay: one local commit per GitLab commit, keeping message, author and date.")
+	fmt.Println("                        --replay: one local commit per GitLab commit, keeping message and date (author: local git config).")
 	fmt.Println("  sync-log            <path> [--mirror <name>]")
 	fmt.Println("                        Prints the local <-> GitLab commit correspondence journal.")
 	fmt.Println("")

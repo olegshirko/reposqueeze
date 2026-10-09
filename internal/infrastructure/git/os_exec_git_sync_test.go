@@ -76,15 +76,14 @@ func TestSyncGit_DiffCommitRestore(t *testing.T) {
 	assert.Empty(t, wt.Changed)
 	assert.Empty(t, wt.Untracked)
 
-	// Author and date can be carried over from another commit.
+	// Dates can be set; the author always comes from the local git config.
 	_, err = g.CommitPaths(repo, "replayed", nil, gateway.CommitOptions{
-		AllowEmpty: true, AuthorName: "Jane Doe", AuthorEmail: "jane@example.com", AuthorDate: "2024-05-06T07:08:09Z",
-		CommitterDate: "2024-05-06T07:08:09Z",
+		AllowEmpty: true, AuthorDate: "2024-05-06T07:08:09Z", CommitterDate: "2024-05-06T07:08:09Z",
 	})
 	require.NoError(t, err)
 	out, err := g.gitString(repo, "log", "-1", "--format=%an|%ae|%aI|%cI")
 	require.NoError(t, err)
-	assert.Equal(t, "Jane Doe|jane@example.com|2024-05-06T07:08:09Z|2024-05-06T07:08:09Z", out)
+	assert.Equal(t, "Test User|test@example.com|2024-05-06T07:08:09Z|2024-05-06T07:08:09Z", out)
 	_, err = g.gitString(repo, "reset", "-q", "--hard", "HEAD~1")
 	require.NoError(t, err)
 

@@ -483,7 +483,7 @@ func newSyncForm() *huh.Form {
 			huh.NewConfirm().
 				Key("replay").
 				Title("Pull GitLab commits one by one?").
-				Description("Yes: a local commit per GitLab commit (message, author, date kept). No: one sync commit.").
+				Description("Yes: a local commit per GitLab commit (message and date kept, author from your git config). No: one sync commit.").
 				Value(&replay),
 			huh.NewSelect[string]().
 				Key("strategy").
